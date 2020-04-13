@@ -211,8 +211,8 @@ class Bayesian_logistic(MLMC):
             X_hc2_sc1 = copy.deepcopy(X_hf_sf)
             X_hc2_sc2 = copy.deepcopy(X_hf_sf)
 
-            dWf = torch.zeros_like(X_f.params)
-            dWc = torch.zeros_like(X_f.params)
+            dWf = torch.zeros_like(X_hf_sf.params)
+            dWc = torch.zeros_like(X_hf_sf.params)
 
             if l==0:
                 for n in range(int(nf)):
@@ -344,7 +344,7 @@ if __name__ == '__main__':
             help='refinement value')
     parser.add_argument('--N', type=int, default=5000, \
             help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=5, \
+    parser.add_argument('--L', type=int, default=4, \
             help='levels for convergence tests')
     parser.add_argument('--s0', type=int, default=100, \
             help='initial value of data batch size')
