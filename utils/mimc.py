@@ -140,7 +140,7 @@ class MIMC(ABC):
         """Returns alpha, beta, gamma
         """
         
-        format_string = "{:<5}{:<5}{:<15}{:<15}{:<15}{:<15}"
+        format_string = "{:<10}{:<10}{:<15}{:<15}{:<15}{:<15}"
         self.write(logfile, "**********************************************************\n")
         self.write(logfile, "*** Convergence tests, kurtosis, telescoping sum check ***\n")
         self.write(logfile, "**********************************************************\n\n")
@@ -150,7 +150,7 @@ class MIMC(ABC):
 
         avg_Pf_Pc = np.zeros([L+1,L+1])
         avg_Pf = np.zeros([L+1,L+1])
-        var_Pf_Pc = np.zerps([L+1,L+1])
+        var_Pf_Pc = np.zeros([L+1,L+1])
         var_Pf = np.zeros([L+1,L+1])
         kur1 = []
         #chk1 = np.zeros([L+1,L+1])
@@ -158,7 +158,7 @@ class MIMC(ABC):
 
         for l1,l2 in product(range(L+1), range(L+1)):
             init_time = time.time()
-            sums_level_l = self.mlmc_fn(l, N)
+            sums_level_l = self.mlmc_fn((l1,l2), N)
             end_time = time.time()
             #cost.append(end_time - init_time)
             cost[l1,l2]= end_time - init_time
@@ -176,7 +176,7 @@ class MIMC(ABC):
             #    check = check / (3*(math.sqrt(var_Pf_Pc[l]) + math.sqrt(var_Pf[l-1]) +\
             #             math.sqrt(var_Pf[l]) )/math.sqrt(N) )
             #chk1.append(check)
-            format_string = "{:<5}{:,5}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}\n"
+            format_string = "{:<10}{:<10}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}\n"
             self.write(logfile, format_string.format(l1,l2,avg_Pf_Pc[l1,l2], avg_Pf[l1,l2], var_Pf_Pc[l1,l2], var_Pf[l1,l2]))
 
         L1 = int(np.ceil(0.4*L))
@@ -204,13 +204,13 @@ class MIMC(ABC):
         self.write(logfile, "*** Linear regression estimates of MLMC parameters ***\n")
         self.write(logfile, "******************************************************\n")
         self.write(logfile, "alpha intercept = {:.4f}\n".format(alpha.intercept_))
-        self.write(logfile "alpha weights = {:.4f},{:.4f}\n\n").format(alpha.coef_[0], alpha.coef_[1])
+        self.write(logfile, "alpha weights = {:.4f},{:.4f}\n".format(alpha.coef_[0], alpha.coef_[1]))
 
-        self.write(logfile, "beta intercept = {:.4f}\n".format(beta.intercept_))
-        self.write(logfile "beta weights = {:.4f},{:.4f}\n\n").format(beta.coef_[0], beta.coef_[1])
+        self.write(logfile, "\nbeta intercept = {:.4f}\n".format(beta.intercept_))
+        self.write(logfile, "beta weights = {:.4f},{:.4f}\n".format(beta.coef_[0], beta.coef_[1]))
         
-        self.write(logfile, "gamma intercept = {:.4f}\n".format(gamma.intercept_))
-        self.write(logfile "gamma weights = {:.4f},{:.4f}\n\n").format(gamma.coef_[0], gamma.coef_[1])
+        self.write(logfile, "\ngamma intercept = {:.4f}\n".format(gamma.intercept_))
+        self.write(logfile, "gamma weights = {:.4f},{:.4f}\n".format(gamma.coef_[0], gamma.coef_[1]))
         
         
         # estimates of averages and variances of different levels
