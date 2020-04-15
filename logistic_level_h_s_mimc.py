@@ -102,6 +102,7 @@ class Bayesian_logistic(MIMC):
         self.n0 = n0 # number of timesteps at level 0
         self.device=device
         self.data_size = self.data_X.shape[0]
+        self.target = 0
 
     @staticmethod
     def init_weights(net, mu=0, std=1):
@@ -144,7 +145,8 @@ class Bayesian_logistic(MIMC):
         #loglik = nets.get_loglikelihood(self.data_X[U,:], self.data_Y[U,:])
         #loglik.backward(torch.ones_like(loglik))
         
-        grad_loglik = nets.get_gradloglikelihood_explicitely(self.data_X[U,:], self.data_Y[U, :])
+        with torch.no_grad():
+            grad_loglik = nets.get_gradloglikelihood_explicitely(self.data_X[U,:], self.data_Y[U, :])
         nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
                 sigma * dW)
         #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
@@ -198,8 +200,8 @@ class Bayesian_logistic(MIMC):
         
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
 
-        for N1 in range(0, N, 1000):
-            N2 = min(1000, N-N1) # we will do batches of paths of size N2
+        for N1 in range(0, N, 5000):
+            N2 = min(5000, N-N1) # we will do batches of paths of size N2
             
             X_hf_sf = LogisticNets(dim, N2).to(device=self.device)
             self.init_weights(X_hf_sf)
@@ -238,13 +240,13 @@ class Bayesian_logistic(MIMC):
                         self._euler_step(X_hf_sc1, U[:sc], sigma_c, hf, dWf)
                         self._euler_step(X_hf_sc2, U[sc:], sigma_c, hf, dWf)
                 
-                self._euler_step(X_hc1_sf, U_list[0], sigma_f, hc, dWc)
-                self._euler_step(X_hc2_sf, U_list[1], sigma_f, hc, dWc)
+                    self._euler_step(X_hc1_sf, U_list[0], sigma_f, hc, dWc)
+                    self._euler_step(X_hc2_sf, U_list[1], sigma_f, hc, dWc)
                     
-                self._euler_step(X_hc1_sc1, U_list[0][:sc], sigma_c, hc, dWc)
-                self._euler_step(X_hc1_sc2, U_list[0][sc:], sigma_c, hc, dWc)
-                self._euler_step(X_hc2_sc1, U_list[1][:sc], sigma_c, hc, dWc)
-                self._euler_step(X_hc2_sc2, U_list[1][sc:], sigma_c, hc, dWc)
+                    self._euler_step(X_hc1_sc1, U_list[0][:sc], sigma_c, hc, dWc)
+                    self._euler_step(X_hc1_sc2, U_list[0][sc:], sigma_c, hc, dWc)
+                    self._euler_step(X_hc2_sc1, U_list[1][:sc], sigma_c, hc, dWc)
+                    self._euler_step(X_hc2_sc2, U_list[1][sc:], sigma_c, hc, dWc)
                 
             F_fine = self.Func(X_hf_sf)
             if lh>0 and ls>0:
@@ -286,7 +288,8 @@ class Bayesian_logistic(MIMC):
             Number of samples per level
         """
         
-        x = np.array(a.shape).reshape(1,-1)
+        
+        x = np.array(Nl.shape).reshape(1,-1) + 1
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * self.M**(L)) 
         cost = 2/eps**2 * self.var_Pf[-1,-1] * 2**(self.gamma.predict(x)) 
         return cost
@@ -314,14 +317,30 @@ class Bayesian_logistic(MIMC):
         cost = sum(Nl * self.n0 * (2**self.gamma) ** np.arange(len(Nl)))
         return cost
 
-    def get_weak_error(self, ml):
+    def get_target(self, logfile):
+        self.write(logfile, "\n***************************\n")
+        self.write(logfile, "***  Calculating target ***\n")
+        self.write(logfile, "***************************\n")
+        Lh, Ls = 4,4
+        avg_Pf_Pc = np.zeros([Lh+1,Ls+1])
+        for lh,ls in product(range(Lh+1), range(Ls+1)):
+            sums_level_l = self.mlmc_fn((lh,ls), 5000)
+            avg_Pf_Pc[lh,ls] = sums_level_l[0]/5000
+            format_string = "{:<5}{:<5}{:<15.4e}\n"
+            self.write(logfile,format_string.format(lh,ls,avg_Pf_Pc[lh,ls]))
+        self.target = np.sum(avg_Pf_Pc)
+        self.write(logfile, "target = {:.4f}\n\n".format(self.target))
+        return 0
+    
+    
+    def get_weak_error(self, P):
         """Get weak error of MLMC approximation
         See http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf p. 21
         """
-        Lh,Ls = 10,10
-        sums_target = self.mlmc_fn([Lh,Ls], 500000)
-        target = sums_target[4]/500000
-        weak_error = np.abs(ml[-1,-1]-target) 
+        #Lh,Ls = 10,10
+        #sums_target = self.mlmc_fn([Lh,Ls], 500000)
+        #target = sums_target[4]/500000
+        weak_error = np.abs(P-self.target) 
         #weak_error = ml[-1]/(2**self.alpha-1)
         return weak_error
         
@@ -366,7 +385,7 @@ if __name__ == '__main__':
             help='samples for convergence tests')
     parser.add_argument('--L', type=int, default=4, \
             help='levels for convergence tests')
-    parser.add_argument('--s0', type=int, default=100, \
+    parser.add_argument('--s0', type=int, default=1000, \
             help='initial value of data batch size')
     parser.add_argument('--N0', type=int, default=10, \
             help='initial number of samples')
@@ -382,7 +401,7 @@ if __name__ == '__main__':
     if args.device=='cpu' or (not torch.cuda.is_available()):
         device='cpu'
     else:
-        device = 'cuda:{}'+str(args.device)
+        device = 'cuda:'+str(args.device)
     
 
     # Target Logistic regression, and synthetic data
@@ -410,6 +429,7 @@ if __name__ == '__main__':
 
     # 2. get complexities
     Eps = [0.1,0.01, 0.005, 0.001, 0.0005]
+    bayesian_logregress.get_target("convergence_test_h_s_diagonal.txt")
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_diagonal.txt")
 
     # 3. plot

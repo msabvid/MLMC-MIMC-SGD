@@ -320,7 +320,7 @@ if __name__ == '__main__':
     if args.device=='cpu' or (not torch.cuda.is_available()):
         device='cpu'
     else:
-        device = 'cuda:{}'+str(args.device)
+        device = 'cuda:'+str(args.device)
     
 
     # Target Logistic regression, and synthetic data

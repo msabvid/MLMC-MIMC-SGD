@@ -73,8 +73,8 @@ class MIMC(ABC):
         # sanity checks
         if self.Lmax < self.Lmin:
             raise ValueError("Need Lmax >= Lmin")
-        if any([eps<=0, self.alpha<0, self.beta<0]):
-            raise ValueError("Need N0>0, eps>0, gamma>0, alpha_0>0, beta_0>0")
+        #if any([eps<=0, self.alpha<0, self.beta<0]):
+        #    raise ValueError("Need N0>0, eps>0, gamma>0, alpha_0>0, beta_0>0")
         
 
         theta = 0.5
@@ -84,11 +84,11 @@ class MIMC(ABC):
         dNl = self.N0 * np.ones_like(Nl) # this will store the number of remaining samples per level to generate to achieve target variance
         Cl = np.zeros_like(Nl)
 
-        while sum(dNl)>0:
+        while np.sum(dNl)>0:
             # update sample sums
             for l1,l2 in product(range(L+1), range(L+1)):
                 if dNl[l1,l2]>0:
-                    sums_level_l = self.mlmc_fn(l1,l2, int(dNl[l])) # \sum (Y_l-Y_{l-1)}
+                    sums_level_l = self.mlmc_fn((l1,l2), int(dNl[l1,l2])) # \sum (Y_l-Y_{l-1)}
                     Nl[l1,l2] += dNl[l1,l2]
                     suml[0,l1,l2] += sums_level_l[0]
                     suml[1,l1,l2] += sums_level_l[1]
@@ -99,39 +99,51 @@ class MIMC(ABC):
             
             
             # set optimal number of additional samples (dNl) in order to minimise total cost for a fixed variance
-            for l1,l2 in product(range(L+1, range(L+1))):
-                Cl[l1,l2] = 2**(self.gamma.predict(np.array([[l1,l2]])))
+            for l1,l2 in product(range(L+1), range(L+1)):
+                Cl[l1,l2] = self.n0 * (self.M ** l1) * (1 + self.s0 * self.M ** l2)
+                #Cl[l1,l2] = 2**(self.gamma.predict(np.array([[l1,l2]])))#-self.gamma.intercept_)
             
-            Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
+            Ns = np.ceil(np.sqrt(Vl/Cl) * np.sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
             dNl = np.maximum(0, Ns-Nl)
 
             # if (almost) converged, i.e. if there are very 
             # few samples to add, 
             # estimate remaining error and decide whether a new level is required
             converged = (dNl < 0.01 * Nl)
-            if all(converged):
-                if self.get_weak_error(ml) > np.sqrt(1/2) * eps:
+            if np.all(converged):
+                P = np.sum(suml[0,:,:]/Nl)
+                if self.get_weak_error(P) > np.sqrt(1/2) * eps:
                     if L == self.Lmax:
                         raise WeakConvergenceFailure("Failed to achieve weak convergence")
                     else:
                         L = L+1
-                        Vl = np.zeros([L+1,L+1])
-                        for l1, l2 in product(range(L+1),range(L+1)):
+                        Vl = np.pad(Vl, ((0,1),(0,1)), mode="constant", constant_values=0)
+                        for l1, l2 in zip([L]*L, range(L)):      
                             Vl[l1,l2] = 2**(self.beta.predict(np.array([[l1,l2]])))
-                        Nl = np.pad(Nl, ((0,1),(0,1)), constant_values = 0.0)
-                        suml = np.pad(suml, ((0,0),(0,1),(0,1)), constant_values=0.0)
+                            #Vl[l1,l2] = Vl[l1-1,l2]* 2**(self.beta.coef_[0,0])
+                        for l1, l2 in zip(range(L), [L]*L):      
+                            Vl[l1,l2] = 2**(self.beta.predict(np.array([[l1,l2]])))
+                            #Vl[l1,l2] = Vl[l1,l2-1]* 2**(self.beta.coef_[0,1])
+                        #Vl[L,L] = Vl[L-1,L-1] * 2**(self.beta.coef_[0,0] + self.beta.coef_[0,1])
+                        Vl[L,L] = 2**(self.beta.predict(np.array([[L,L]])))
                         
+                        Nl = np.pad(Nl, ((0,1),(0,1)), mode = "constant", constant_values = 0.0)
+                        suml = np.pad(suml, ((0,0),(0,1),(0,1)), mode="constant", constant_values=0.0)
+                        
+
                         # we decide how many samples need to be added in the new level
-                        for l1,l2 in product(range(L+1, range(L+1))):
-                            Cl[l1,l2] = 2**(self.gamma.predict(np.array([[l1,l2]])))
+                        Cl = np.zeros([L+1,L+1])
+                        for l1,l2 in product(range(L+1), range(L+1)):
+                            Cl[l1,l2] = self.n0 * (self.M ** l1) * (1 + self.s0 * self.M ** l2)
+                            #Cl[l1,l2] = 2**(self.gamma.predict(np.array([[l1,l2]])))#-self.gamma.intercept_)
                         
-                        Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
+                        Ns = np.ceil(np.sqrt(Vl/Cl) * np.sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
                         dNl = np.maximum(0, Ns-Nl)
                 else:
                     pass
         
         # finally, evaluate the multi-level estimator
-        P = sum(suml[0,:]/Nl)
+        P = np.sum(suml[0,:,:]/Nl)
         return P, Nl
 
 
@@ -140,12 +152,12 @@ class MIMC(ABC):
         """Returns alpha, beta, gamma
         """
         
-        format_string = "{:<10}{:<10}{:<15}{:<15}{:<15}{:<15}"
+        format_string = "{:<10}{:<10}{:<15}{:<15}{:<15}{:<15}{:<15}"
         self.write(logfile, "**********************************************************\n")
         self.write(logfile, "*** Convergence tests, kurtosis, telescoping sum check ***\n")
         self.write(logfile, "**********************************************************\n\n")
         #write(logfile, "\n level    ave(Pf-Pc)    ave(Pf)   var(Pf-Pc)    var(Pf)    kurtosis     check") 
-        self.write(logfile, format_string.format("level1","level2","avg(Pf-Pc)","avg(Pf)","var(Pf-Pc)","var(Pf)"))
+        self.write(logfile, format_string.format("level1","level2","avg(Pf-Pc)","avg(Pf)","var(Pf-Pc)","var(Pf)","cost(Pf-Pc)"))
         self.write(logfile, "\n----------------------------------------------------------------------------\n")
 
         avg_Pf_Pc = np.zeros([L+1,L+1])
@@ -161,7 +173,8 @@ class MIMC(ABC):
             sums_level_l = self.mlmc_fn((l1,l2), N)
             end_time = time.time()
             #cost.append(end_time - init_time)
-            cost[l1,l2]= end_time - init_time
+            #cost[l1,l2]= end_time - init_time
+            cost[l1,l2] = self.n0 * (self.M ** l1) * (1 + self.s0 * self.M ** l2)
             sums_level_l = sums_level_l/N
             avg_Pf_Pc[l1,l2] = sums_level_l[0]
             avg_Pf[l1,l2] = sums_level_l[4]
@@ -176,16 +189,16 @@ class MIMC(ABC):
             #    check = check / (3*(math.sqrt(var_Pf_Pc[l]) + math.sqrt(var_Pf[l-1]) +\
             #             math.sqrt(var_Pf[l]) )/math.sqrt(N) )
             #chk1.append(check)
-            format_string = "{:<10}{:<10}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}\n"
-            self.write(logfile, format_string.format(l1,l2,avg_Pf_Pc[l1,l2], avg_Pf[l1,l2], var_Pf_Pc[l1,l2], var_Pf[l1,l2]))
+            format_string = "{:<10}{:<10}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}\n"
+            self.write(logfile, format_string.format(l1,l2,avg_Pf_Pc[l1,l2], avg_Pf[l1,l2], var_Pf_Pc[l1,l2], var_Pf[l1,l2],cost[l1,l2]))
 
         L1 = int(np.ceil(0.4*L))
         L2 = L+1
         
         # we approximate alpha, beta, gamma, see Theorem 2
         # in http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf
-        x = list(product(range(L1,L2), product(range(L1,L2))))
-        xx = np.array(x)
+        x = list(product(range(L1,L2), range(L1,L2)))
+        xx = np.array(x)+1
         
         #alpha
         y = np.array([avg_Pf_Pc[idx] for idx in x]).reshape(-1,1)
@@ -197,20 +210,20 @@ class MIMC(ABC):
         
         # gamma
         y = np.array([cost[idx] for idx in x]).reshape(-1,1)
-        self.gamma.fit(xx, np.log2(cost))
+        self.gamma.fit(xx, np.log2(y))
         
         
         self.write(logfile, "\n******************************************************\n")
         self.write(logfile, "*** Linear regression estimates of MLMC parameters ***\n")
         self.write(logfile, "******************************************************\n")
-        self.write(logfile, "alpha intercept = {:.4f}\n".format(alpha.intercept_))
-        self.write(logfile, "alpha weights = {:.4f},{:.4f}\n".format(alpha.coef_[0], alpha.coef_[1]))
+        self.write(logfile, "alpha intercept = {:.4f}\n".format(self.alpha.intercept_.item()))
+        self.write(logfile, "alpha weights = {:.4f},{:.4f}\n".format(self.alpha.coef_[0,0], self.alpha.coef_[0,1]))
 
-        self.write(logfile, "\nbeta intercept = {:.4f}\n".format(beta.intercept_))
-        self.write(logfile, "beta weights = {:.4f},{:.4f}\n".format(beta.coef_[0], beta.coef_[1]))
+        self.write(logfile, "\nbeta intercept = {:.4f}\n".format(self.beta.intercept_.item()))
+        self.write(logfile, "beta weights = {:.4f},{:.4f}\n".format(self.beta.coef_[0,0], self.beta.coef_[0,1]))
         
-        self.write(logfile, "\ngamma intercept = {:.4f}\n".format(gamma.intercept_))
-        self.write(logfile, "gamma weights = {:.4f},{:.4f}\n".format(gamma.coef_[0], gamma.coef_[1]))
+        self.write(logfile, "\ngamma intercept = {:.4f}\n".format(self.gamma.intercept_.item()))
+        self.write(logfile, "gamma weights = {:.4f},{:.4f}\n".format(self.gamma.coef_[0,0], self.gamma.coef_[0,1]))
         
         
         # estimates of averages and variances of different levels
@@ -253,12 +266,12 @@ class MIMC(ABC):
         std_cost = np.zeros_like(Eps)
         Nl_list = []
         for idx, eps in enumerate(Eps):
-            P, Nl = self._mlmc(eps)
+            P, Nl = self._mimc(eps)
             Nl_list.append(Nl)
             mlmc_cost[idx] = self.get_cost_MLMC(eps, Nl)
             std_cost[idx] = self.get_cost_std_MC(eps, Nl)
             self.write(logfile, "{:<10.4f}{:<15.3e}{:<15.3e}{:<15.2f}".format(eps,mlmc_cost[idx],std_cost[idx],std_cost[idx]/mlmc_cost[idx]))
-            self.write(logfile, " ".join(["%9d" % n for n in Nl]))
+            self.write(logfile, " ".join(["%9d" % n for n in Nl.flatten().tolist()]))
             self.write(logfile, "\n")
 
         return Nl_list, mlmc_cost, std_cost

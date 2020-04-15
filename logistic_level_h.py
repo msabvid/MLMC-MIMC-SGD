@@ -324,7 +324,7 @@ if __name__ == '__main__':
             help='minimum refinement level')
     parser.add_argument('--Lmax', type=int, default=15, \
             help='maximum refinement level')
-    parser.add_argument('--device', default='cpu')
+    parser.add_argument('--device', default=0)
     parser.add_argument('--dim', type=int, default=2,
             help='dimension of data')
     args = parser.parse_args()
@@ -332,7 +332,7 @@ if __name__ == '__main__':
     if args.device=='cpu' or (not torch.cuda.is_available()):
         device='cpu'
     else:
-        device = 'cuda:{}'+str(args.device)
+        device = 'cuda:'+str(args.device)
     
 
     # Target Logistic regression, and synthetic data
