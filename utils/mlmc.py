@@ -7,7 +7,7 @@ import math
 from scipy.stats import linregress
 import sys
 import time
-
+import matplotlib.pyplot as plt
 
 class WeakConvergenceFailure(Exception):
     pass
@@ -101,7 +101,10 @@ class MLMC(ABC):
             
             
             # set optimal number of additional samples (dNl) in order to minimise total cost for a fixed variance
-            Cl = 2 ** (gamma * np.arange(0,L+1)) # cost of generating one sample of (Y_l - Y_{l-1})
+            Cl = np.arange(L+1)
+            for idx, nl in enumerate(Cl):
+                Cl[idx] = self.get_cost(idx)
+            
             Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
             dNl = np.maximum(0, Ns-Nl)
 
@@ -120,7 +123,10 @@ class MLMC(ABC):
                         suml = np.column_stack([suml, [0,0]])
                         
                         # we decide how many samples need to be added in the new level
-                        Cl = 2 ** (gamma * np.arange(0,L+1)) # cost of generating one sample of (Y_l - Y_{l-1})
+                        Cl = np.arange(L+1)
+                        for idx, nl in enumerate(Cl):
+                            Cl[idx] = self.get_cost(idx)
+
                         Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
                         dNl = np.maximum(0, Ns-Nl)
                 else:
@@ -131,6 +137,11 @@ class MLMC(ABC):
         return P, Nl
 
 
+    @abstractmethod
+    def get_cost(self, l):
+        """
+        """
+        ...
     
     def estimate_alpha_beta_gamma(self, L, N, logfile):
         """Returns alpha, beta, gamma
@@ -156,7 +167,8 @@ class MLMC(ABC):
             init_time = time.time()
             sums_level_l = self.mlmc_fn(l, N)
             end_time = time.time()
-            cost.append(end_time - init_time)
+            #cost.append(end_time - init_time)
+            cost.append(self.get_cost(l))
             sums_level_l = sums_level_l/N
             avg_Pf_Pc.append(sums_level_l[0])
             avg_Pf.append(sums_level_l[4])
@@ -268,22 +280,28 @@ class MLMC(ABC):
         ax[0,1].set_ylabel('$\mathrm{log}_2(|\mathrm{mean}|)$')
         ax[0,1].legend(loc='lower left', fontsize='x-small')
         
-        for eps, Nl in zip(Eps, Nl_list):
-            ax[1,0].plot(Nl, label=str(eps))
+        styles = ['o--', 'x--', 'd--', '*--', 's--', 't--']
+        for idx, (eps, Nl) in enumerate(zip(Eps, Nl_list)):
+            ax[1,0].plot(Nl, styles[idx], label=str(eps))
         
         ax[1,0].legend()
         ax[1,0].set_yscale('log')
+        ax[1,0].set_xlabel("level $l$")
+        ax[1,0].set_ylabel("$N_l$")
         
         Eps = np.array(Eps)
         ax[1,1].plot(Eps, Eps**2 * mlmc_cost, '*--', label='MLMC')
-        ax[1,1].plot(Eps, Eps**2 * mtd_cost, '*--', label='std MC')
+        ax[1,1].plot(Eps, Eps**2 * std_cost, '*--', label='std MC')
         ax[1,1].set_yscale('log')
         ax[1,1].set_xscale('log')
+        ax[1,1].set_xlabel("accuracy $\epsilon$")
+        ax[1,1].set_ylabel("$\epsilon^2$ cost")
 
-        fig.savefig("filename")
+        fig.tight_layout()
 
 
-    
+        fig.savefig(filename)
+
     
     def get_alpha(self):
         return self.alpha

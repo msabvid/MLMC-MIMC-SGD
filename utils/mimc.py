@@ -9,6 +9,8 @@ import sys
 import time
 from itertools import product
 from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
+
 
 class WeakConvergenceFailure(Exception):
     pass
@@ -112,7 +114,7 @@ class MIMC(ABC):
             converged = (dNl < 0.01 * Nl)
             if np.all(converged):
                 P = np.sum(suml[0,:,:]/Nl)
-                if self.get_weak_error(P) > np.sqrt(1/2) * eps:
+                if self.get_weak_error(L) > np.sqrt(1/2) * eps:
                     if L == self.Lmax:
                         raise WeakConvergenceFailure("Failed to achieve weak convergence")
                     else:
@@ -270,7 +272,7 @@ class MIMC(ABC):
             Nl_list.append(Nl)
             mlmc_cost[idx] = self.get_cost_MLMC(eps, Nl)
             std_cost[idx] = self.get_cost_std_MC(eps, Nl)
-            self.write(logfile, "{:<10.4f}{:<15.3e}{:<15.3e}{:<15.2f}".format(eps,mlmc_cost[idx],std_cost[idx],std_cost[idx]/mlmc_cost[idx]))
+            self.write(logfile, "{:<10.4f}{:<15.3e}{:<15.3e}{:<15.3e}".format(eps,mlmc_cost[idx],std_cost[idx],std_cost[idx]/mlmc_cost[idx]))
             self.write(logfile, " ".join(["%9d" % n for n in Nl.flatten().tolist()]))
             self.write(logfile, "\n")
 
@@ -280,32 +282,55 @@ class MIMC(ABC):
     def plot(self, Eps, Nl_list, mlmc_cost, std_cost, filename):
         L = len(self.avg_Pf)
         l = np.arange(L)
-        fig, ax = plt.subplots(nrows=2,ncols=2,sharex=False, sharey=False)
-        ax[0,0].plot(l, np.log2(self.var_Pf), '*-', label='$P_l$')
-        ax[0,0].plot(l[1:], np.log2(self.var_Pf_Pc[1:]), '*--', label='$P_l-P_{l-1}$')
-        ax[0,0].set_xlabel('level $l$')
-        ax[0,0].set_ylabel('$\mathrm{log}_2(\mathrm{variance})$')
-        ax[0,0].legend(loc='lower left', fontsize='x-small')
 
-        ax[0,1].plot(l, np.log2(self.avg_Pf), '*-', label='$P_l$')
-        ax[0,1].plot(l[1:], np.log2(np.abs(self.avg_Pf_Pc[1:])), '*--', label='$P_l-P_{l-1}$')
-        ax[0,1].set_xlabel('level $l$')
-        ax[0,1].set_ylabel('$\mathrm{log}_2(|\mathrm{mean}|)$')
-        ax[0,1].legend(loc='lower left', fontsize='x-small')
+        f = filename.split('.')[0]
+
+        fig, ax = plt.subplots(nrows=1,ncols=2,sharex=False, sharey=False)
+        vmin = np.min(np.log2(self.var_Pf))
+        vmax = np.max(np.log2(self.var_Pf))
+        matplot1 = ax[0].imshow(np.log2(self.var_Pf),vmin = vmin, vmax = vmax)
+        fig.colorbar(matplot1, ax=ax[0])
+        ax[0].set_title('$\mathrm{log}_2(\mathrm{variance})$')
+        ax[0].set_xlabel("$P_l$")
+        ax[0].set_aspect("auto")
+
+        matplot2 = ax[1].imshow(np.log2(self.var_Pf_Pc))
+        fig.colorbar(matplot2, ax=ax[1])
+        ax[1].set_title('$\mathrm{log}_2(\mathrm{variance})$')
+        ax[1].set_xlabel("$\Delta P_l$")
+        ax[1].set_aspect("auto")
         
-        for eps, Nl in zip(Eps, Nl_list):
-            ax[1,0].plot(Nl, label=str(eps))
+        fig.savefig(f + "_var.pdf")
         
-        ax[1,0].legend()
-        ax[1,0].set_yscale('log')
-        
+
+
+        fig, ax = plt.subplots(nrows=1,ncols=2,sharex=False, sharey=False)
+        vmin = np.min(np.log2(np.abs(self.avg_Pf)))
+        vmax = np.max(np.log2(np.abs(self.avg_Pf)))
+        matplot3 = ax[0].imshow(np.log2(np.abs(self.avg_Pf)),vmin=vmin, vmax=vmax)
+        fig.colorbar(matplot3, ax=ax[0])
+        ax[0].set_title('$\mathrm{log}_2(|\mathrm{mean}|)$')
+        ax[0].set_xlabel("$P_l$")
+        ax[0].set_aspect("auto")
+
+        matplot4 = ax[1].imshow(np.log2(np.abs(self.avg_Pf_Pc)))
+        fig.colorbar(matplot4, ax=ax[1])
+        ax[1].set_title('$\mathrm{log}_2(|\mathrm{mean}|)$')
+        ax[1].set_xlabel("$P_l-P_{l-1}$")
+        ax[1].set_aspect("auto")
+        fig.savefig(f + "_avg.pdf")
+
+        fig, ax = plt.subplots()
         Eps = np.array(Eps)
-        ax[1,1].plot(Eps, Eps**2 * mlmc_cost, '*--', label='MLMC')
-        ax[1,1].plot(Eps, Eps**2 * mtd_cost, '*--', label='std MC')
-        ax[1,1].set_yscale('log')
-        ax[1,1].set_xscale('log')
+        ax.plot(Eps, Eps**2 * mlmc_cost, '*--', label='MIMC')
+        ax.plot(Eps, Eps**2 * std_cost, '*--', label='std MC')
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        ax.legend()
 
-        fig.savefig("filename")
+        #fig.tight_layout()
+
+        fig.savefig(f+"_cost.pdf")
 
 
     
@@ -334,7 +359,7 @@ class MIMC(ABC):
         ...
     
     @abstractmethod
-    def get_weak_error(self, ml):
+    def get_weak_error(self, L):
         """Test weak convergence
 
         """

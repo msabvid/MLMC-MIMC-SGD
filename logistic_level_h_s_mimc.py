@@ -13,6 +13,8 @@ import argparse
 import numpy as np
 import math
 from itertools import product
+import matplotlib.pyplot as plt
+
 from utils import MIMC 
 
 
@@ -166,10 +168,10 @@ class Bayesian_logistic(MIMC):
         nets : LogisticNets 
 
         """
-        #with torch.no_grad():
-        #    F = torch.norm(nets.params, p=1, dim=1)
         with torch.no_grad():
-            F = nets(self.data_X[-1,:].unsqueeze(0))
+            F = torch.norm(nets.params, p=2, dim=1)
+        #with torch.no_grad():
+        #    F = nets(self.data_X[-1,:].unsqueeze(0))
         #F = nets
         return F.cpu().numpy()
 
@@ -289,9 +291,11 @@ class Bayesian_logistic(MIMC):
         """
         
         
-        x = np.array(Nl.shape).reshape(1,-1) + 1
+        x = np.array(Nl.shape).reshape(1,-1) 
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * self.M**(L)) 
-        cost = 2/eps**2 * self.var_Pf[-1,-1] * 2**(self.gamma.predict(x)) 
+        #cost = 2/eps**2 * self.var_Pf[-1,-1] * 2**(self.gamma.predict(x)) 
+        Cl = self.n0 * (self.M ** x[0,0]) * (1 + self.s0 * self.M ** x[0,1])
+        cost = 2/eps**2 * self.var_Pf[-1,-1] * Cl
         return cost
     
     def get_cost_MLMC(self, eps, Nl):
@@ -326,26 +330,30 @@ class Bayesian_logistic(MIMC):
         for lh,ls in product(range(Lh+1), range(Ls+1)):
             sums_level_l = self.mlmc_fn((lh,ls), 5000)
             avg_Pf_Pc[lh,ls] = sums_level_l[0]/5000
-            format_string = "{:<5}{:<5}{:<15.4e}\n"
-            self.write(logfile,format_string.format(lh,ls,avg_Pf_Pc[lh,ls]))
+            avg_Pf = sums_level_l[4]/5000
+            format_string = "{:<5}{:<5}{:<15.4e}{:<15.4e}\n"
+            self.write(logfile,format_string.format(lh,ls,avg_Pf_Pc[lh,ls], avg_Pf))
         self.target = np.sum(avg_Pf_Pc)
         self.write(logfile, "target = {:.4f}\n\n".format(self.target))
         return 0
     
     
-    def get_weak_error(self, P):
+    def get_weak_error(self, L):
         """Get weak error of MLMC approximation
-        See http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf p. 21
+        See https://link.springer.com/content/pdf/10.1007/s00211-015-0734-5.pdf (53)
         """
         #Lh,Ls = 10,10
         #sums_target = self.mlmc_fn([Lh,Ls], 500000)
         #target = sums_target[4]/500000
-        weak_error = np.abs(P-self.target) 
-        #weak_error = ml[-1]/(2**self.alpha-1)
-        return weak_error
+        weak_error = 0
+
+        #weak_error = np.abs(P-self.target) 
+        for l1, l2 in zip([L+1]*(L+1), range(L+1)):
+            sums_level_l = self.mlmc_fn((l1,l2),5000)
+            weak_error += sums_level_l[0]/5000
+        return abs(weak_error)
         
-
-
+            
 def synthetic(dim : int, data_size : int):
     """Creates synthetic dataset for logistic regression
 
@@ -367,7 +375,7 @@ def synthetic(dim : int, data_size : int):
     data_x = torch.randn(data_size, dim)
     data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
     
-    params = torch.randn(dim+1, 1) - 0.4
+    params = torch.randn(dim+1, 1) - 0.5
     data_y = torch.matmul(data_x, params)
     data_y = torch.sign(torch.clamp(data_y, 0))
 
@@ -428,9 +436,10 @@ if __name__ == '__main__':
     bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_h_s_diagonal.txt")
 
     # 2. get complexities
-    Eps = [0.1,0.01, 0.005, 0.001, 0.0005]
+    Eps = [0.1,0.01, 0.005, 0.001, 0.0005]#, 0.0001]
     bayesian_logregress.get_target("convergence_test_h_s_diagonal.txt")
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_diagonal.txt")
 
     # 3. plot
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h_s_mimc.pdf")
     

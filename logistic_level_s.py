@@ -164,7 +164,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=1, dim=1)
+            F = torch.norm(nets.params, p=2, dim=1)
         #F = nets
         return F.cpu().numpy()
 
@@ -220,6 +220,11 @@ class Bayesian_logistic(MLMC):
         return sums_level_l
 
 
+    def get_cost(self, l):
+        cost = self.n0 * (1+self.s0 * self.M ** l)
+        return cost
+    
+    
     def get_cost_std_MC(self, eps, Nl):
         """Cost of standard Monte Carlo
         
@@ -238,7 +243,10 @@ class Bayesian_logistic(MLMC):
         
         L = len(Nl)
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * self.M**(L)) 
-        cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * 2**(self.gamma*L)) 
+        #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * 2**(self.gamma*L)) 
+        CL = self.n0 * ((self.M ** L) * (1 + self.s0 * self.M ** L))
+        cost = 2/eps**2 * self.var_Pf[-1] * CL
+                
         return cost
     
     def get_cost_MLMC(self, eps, Nl):
@@ -253,7 +261,9 @@ class Bayesian_logistic(MLMC):
         """
         #cost = sum(Nl * self.n0 * self.M ** np.arange(len(Nl)))
         L = len(Nl)
-        cost = sum(Nl * self.n0 * (2**self.gamma) ** np.arange(len(Nl)))
+        cost = 0
+        for idx, nl in enumerate(Nl):
+            cost += nl * self.n0 * (self.M**idx)*(1+self.s0 * self.M**idx)
         return cost
 
     def get_weak_error(self, ml):
@@ -334,7 +344,7 @@ if __name__ == '__main__':
             'M':args.M,
             'T':2,
             's0':args.s0,
-            'n0':100, # initial number of steps at level 0
+            'n0':10, # initial number of steps at level 0
             'data_X':data_X,
             'data_Y':data_Y,
             'device':device,
@@ -351,4 +361,5 @@ if __name__ == '__main__':
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_s.txt")
 
     # 3. plot
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_s.pdf")
     

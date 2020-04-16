@@ -12,6 +12,7 @@ import copy
 import argparse
 import numpy as np
 import math
+import matplotlib.pyplot as plt
 from utils import MLMC 
 
 
@@ -163,10 +164,10 @@ class Bayesian_logistic(MLMC):
         nets : LogisticNets 
 
         """
-        #with torch.no_grad():
-        #    F = torch.norm(nets.params, p=1, dim=1)
         with torch.no_grad():
-            F = nets(self.data_X[-1,:].unsqueeze(0))
+            F = torch.norm(nets.params, p=2, dim=1)
+        #with torch.no_grad():
+        #    F = nets(self.data_X[-1,:].unsqueeze(0))
         #F = nets
         return F.cpu().numpy()
 
@@ -230,6 +231,10 @@ class Bayesian_logistic(MLMC):
             sums_level_l[4] += np.sum(F_fine)
             sums_level_l[5] += np.sum(F_fine**2)  
         return sums_level_l
+
+    def get_cost(self, l):
+        cost = self.n0 * self.M ** l * (1 + self.s0)
+        return cost
 
 
     def get_cost_std_MC(self, eps, Nl):
@@ -363,4 +368,5 @@ if __name__ == '__main__':
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test.txt")
 
     # 3. plot
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h.pdf")
     

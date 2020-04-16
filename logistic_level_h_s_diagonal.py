@@ -164,7 +164,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=1, dim=1)
+            F = torch.norm(nets.params, p=2, dim=1)
         #F = nets
         return F.cpu().numpy()
 
@@ -261,7 +261,12 @@ class Bayesian_logistic(MLMC):
             sums_level_l[5] += np.sum(F_fine**2)  
         return sums_level_l
 
+    
+    def get_cost(self, l):
+        cost = self.n0 * self.M ** l * (1 + self.s0 * self.M ** l)
+        return cost
 
+    
     def get_cost_std_MC(self, eps, Nl):
         """Cost of standard Monte Carlo
         
@@ -393,4 +398,4 @@ if __name__ == '__main__':
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_diagonal.txt")
 
     # 3. plot
-    
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h_s_diagonal.pdf")
