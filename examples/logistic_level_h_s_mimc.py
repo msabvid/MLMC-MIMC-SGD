@@ -169,7 +169,7 @@ class Bayesian_logistic(MIMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)
+            F = torch.norm(nets.params, p=2, dim=1)**2
         #with torch.no_grad():
         #    F = nets(self.data_X[-1,:].unsqueeze(0))
         #F = nets
@@ -225,14 +225,14 @@ class Bayesian_logistic(MIMC):
             if lh==0 and ls==0:
                 for n in range(int(nf)):
                     dWf = math.sqrt(hf) * torch.randn_like(dWf)
-                    U = np.random.choice(self.data_size, sf)
+                    U = np.random.choice(self.data_size, sf, replace=False)
                     self._euler_step(X_hf_sf, U, sigma_f, hf, dWf)
             else:
                 for n in range(int(nc)):
                     dWc = dWc * 0
                     U_list = []
                     for m in range(self.M):
-                        U = np.random.choice(self.data_size, sf)
+                        U = np.random.choice(self.data_size, sf, replace=False)
                         U_list.append(U)
                         dWf = math.sqrt(hf) * torch.randn_like(dWf)
                         dWc += dWf
@@ -318,8 +318,8 @@ class Bayesian_logistic(MIMC):
         
 
 
-        cost = sum(Nl * self.n0 * (2**self.gamma) ** np.arange(len(Nl)))
-        return cost
+        #cost = sum(Nl * self.n0 * (2**self.gamma) ** np.arange(len(Nl)))
+        #return cost
 
     def get_target(self, logfile):
         self.write(logfile, "\n***************************\n")
@@ -393,7 +393,7 @@ if __name__ == '__main__':
             help='samples for convergence tests')
     parser.add_argument('--L', type=int, default=4, \
             help='levels for convergence tests')
-    parser.add_argument('--s0', type=int, default=1000, \
+    parser.add_argument('--s0', type=int, default=500, \
             help='initial value of data batch size')
     parser.add_argument('--N0', type=int, default=10, \
             help='initial number of samples')
@@ -433,12 +433,12 @@ if __name__ == '__main__':
     bayesian_logregress = Bayesian_logistic(**MLMC_CONFIG)
     
     # 1. Convergence tests
-    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_h_s_diagonal.txt")
+    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_h_s_mimc.txt")
 
     # 2. get complexities
     Eps = [0.1,0.01, 0.005, 0.001, 0.0005]#, 0.0001]
-    bayesian_logregress.get_target("convergence_test_h_s_diagonal.txt")
-    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_diagonal.txt")
+    bayesian_logregress.get_target("convergence_test_h_s_mimc.txt")
+    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_mimc.txt")
 
     # 3. plot
     bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h_s_mimc.pdf")

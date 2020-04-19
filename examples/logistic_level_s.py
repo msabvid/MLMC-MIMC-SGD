@@ -12,7 +12,7 @@ import copy
 import argparse
 import numpy as np
 import math
-from utils import MLMC 
+from mlmc_mimc import MLMC 
 
 
 
@@ -164,7 +164,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)
+            F = torch.norm(nets.params, p=2, dim=1)**2
         #F = nets
         return F.cpu().numpy()
 
@@ -200,7 +200,7 @@ class Bayesian_logistic(MLMC):
 
             for n in range(int(nf)):
                 dW = math.sqrt(hf) * torch.randn_like(dW)
-                U = np.random.choice(self.data_size, sf)
+                U = np.random.choice(self.data_size, sf, replace=False)
                 self._euler_step(X_f, U, sigma_f, hf, dW)
                 
                 if l>0:
@@ -244,7 +244,7 @@ class Bayesian_logistic(MLMC):
         L = len(Nl)
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * self.M**(L)) 
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * 2**(self.gamma*L)) 
-        CL = self.n0 * ((self.M ** L) * (1 + self.s0 * self.M ** L))
+        CL = self.n0 *  (1 + self.s0 * self.M ** L)
         cost = 2/eps**2 * self.var_Pf[-1] * CL
                 
         return cost
@@ -263,7 +263,7 @@ class Bayesian_logistic(MLMC):
         L = len(Nl)
         cost = 0
         for idx, nl in enumerate(Nl):
-            cost += nl * self.n0 * (self.M**idx)*(1+self.s0 * self.M**idx)
+            cost += nl * self.n0 * (1+self.s0 * self.M**idx)
         return cost
 
     def get_weak_error(self, ml):
@@ -296,7 +296,7 @@ def synthetic(dim : int, data_size : int):
     data_x = torch.randn(data_size, dim)
     data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
     
-    params = torch.randn(dim+1, 1) - 0.2
+    params = torch.randn(dim+1, 1) - 0.4
     data_y = torch.matmul(data_x, params)
     data_y = torch.sign(torch.clamp(data_y, 0))
 

@@ -12,7 +12,7 @@ import copy
 import argparse
 import numpy as np
 import math
-from utils import MLMC 
+from mlmc_mimc import MLMC 
 
 
 
@@ -164,7 +164,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)
+            F = torch.norm(nets.params, p=2, dim=1)**2
         #F = nets
         return F.cpu().numpy()
 
@@ -217,14 +217,14 @@ class Bayesian_logistic(MLMC):
             if l==0:
                 for n in range(int(nf)):
                     dWf = math.sqrt(hf) * torch.randn_like(dWf)
-                    U = np.random.choice(self.data_size, sf)
+                    U = np.random.choice(self.data_size, sf, replace=False)
                     self._euler_step(X_hf_sf, U, sigma_f, hf, dWf)
             else:
                 for n in range(int(nc)):
                     dWc = dWc * 0
                     U_list = []
                     for m in range(self.M):
-                        U = np.random.choice(self.data_size, sf)
+                        U = np.random.choice(self.data_size, sf, replace=False)
                         U_list.append(U)
                         dWf = math.sqrt(hf) * torch.randn_like(dWf)
                         dWc += dWf
@@ -285,7 +285,8 @@ class Bayesian_logistic(MLMC):
         
         L = len(Nl)
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * self.M**(L)) 
-        cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * 2**(self.gamma*L)) 
+        CL = self.n0 * self.M ** L  *  (1 + self.s0 * self.M ** L)
+        cost = 2/eps**2 * self.var_Pf[-1] * CL 
         return cost
     
     def get_cost_MLMC(self, eps, Nl):
@@ -300,7 +301,11 @@ class Bayesian_logistic(MLMC):
         """
         #cost = sum(Nl * self.n0 * self.M ** np.arange(len(Nl)))
         L = len(Nl)
-        cost = sum(Nl * self.n0 * (2**self.gamma) ** np.arange(len(Nl)))
+        cost = 0
+        for idx, nl in enumerate(Nl):
+            cost += nl * self.n0 * self.M ** idx *  (1+self.s0 * self.M**idx)
+        #L = len(Nl)
+        #cost = sum(Nl * self.n0 * (2**self.gamma) ** np.arange(len(Nl)))
         return cost
 
     def get_weak_error(self, ml):
