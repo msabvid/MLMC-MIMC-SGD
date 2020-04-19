@@ -1,6 +1,6 @@
 import sys
 import os
-path = os.path.abspath(__file__)
+path = os.path.join(os.path.dirname(__file__),'..')
 sys.path.append(path)
 
 

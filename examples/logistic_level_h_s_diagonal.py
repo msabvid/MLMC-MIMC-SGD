@@ -1,6 +1,6 @@
 import sys
 import os
-path = os.path.abspath(__file__)
+path = os.path.join(os.path.dirname(__file__),'..')
 sys.path.append(path)
 
 
@@ -176,54 +176,96 @@ class Bayesian_logistic(MLMC):
 
         """
         dim = self.data_X.shape[1]-1
+        sigma = 1/math.sqrt(self.s0)
         
-        nf = self.n0 # n steps discretisation level
-        hf = self.T/nf # step size in discretisation level
+        # discretisation level
+        nf = self.n0 * self.M ** l # n steps in fine time discretisation
+        hf = self.T/nf # step size in coarse time discretisation
+        nc = int(nf/self.M)
+        hc = self.T/nc
         
+        # drift estimation level
         sf = self.s0 * self.M ** l
         sc = int(sf/self.M)
         sigma_f = 1/math.sqrt(sf)
         sigma_c = 1/math.sqrt(sc)
+        
 
+        
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
 
         for N1 in range(0, N, 1000):
             N2 = min(1000, N-N1) # we will do batches of paths of size N2
             
-            X_f = LogisticNets(dim, N2).to(device=self.device)
-            self.init_weights(X_f)
+            X_hf_sf = LogisticNets(dim, N2).to(device=self.device)
+            self.init_weights(X_hf_sf)
 
-            X_c1 = copy.deepcopy(X_f) # 1st coarse process for antithetics
-            X_c2 = copy.deepcopy(X_f) # 2nd coarse process for antithetics
-            
-            dW = torch.zeros_like(X_f.params)
+            X_hf_sc1 = copy.deepcopy(X_hf_sf)
+            X_hf_sc2 = copy.deepcopy(X_hf_sf)
 
-            for n in range(int(nf)):
-                dW = math.sqrt(hf) * torch.randn_like(dW)
-                U = np.random.choice(self.data_size, sf)
-                self._euler_step(X_f, U, sigma_f, hf, dW)
+            X_hc1_sf = copy.deepcopy(X_hf_sf)
+            X_hc2_sf = copy.deepcopy(X_hf_sf)
+
+            X_hc1_sc1 = copy.deepcopy(X_hf_sf)
+            X_hc1_sc2 = copy.deepcopy(X_hf_sf)
+            X_hc2_sc1 = copy.deepcopy(X_hf_sf)
+            X_hc2_sc2 = copy.deepcopy(X_hf_sf)
+
+            dWf = torch.zeros_like(X_hf_sf.params)
+            dWc = torch.zeros_like(X_hf_sf.params)
+
+            if l==0:
+                for n in range(int(nf)):
+                    dWf = math.sqrt(hf) * torch.randn_like(dWf)
+                    U = np.random.choice(self.data_size, sf)
+                    self._euler_step(X_hf_sf, U, sigma_f, hf, dWf)
+            else:
+                for n in range(int(nc)):
+                    dWc = dWc * 0
+                    U_list = []
+                    for m in range(self.M):
+                        U = np.random.choice(self.data_size, sf)
+                        U_list.append(U)
+                        dWf = math.sqrt(hf) * torch.randn_like(dWf)
+                        dWc += dWf
+
+                        self._euler_step(X_hf_sf, U, sigma_f, hf, dWf)
+                        
+                        self._euler_step(X_hf_sc1, U[:sc], sigma_f, hf, dWf)
+                        self._euler_step(X_hf_sc2, U[sc:], sigma_f, hf, dWf)
                 
-                if l>0:
-                    self._euler_step(X_c1, U[:sc], sigma_c, hf, dW)
-                    self._euler_step(X_c2, U[sc:], sigma_c, hf, dW)
-
-            F_fine = self.Func(X_f)
-            F_coarse_antithetic = 0.5 * (self.Func(X_c1)+self.Func(X_c2)) if l>0 else 0
+                self._euler_step(X_hc1_sf, U_list[0], sigma_f, hc, dWc)
+                self._euler_step(X_hc2_sf, U_list[1], sigma_f, hc, dWc)
+                    
+                self._euler_step(X_hc1_sc1, U_list[0][:sc], sigma_f, hc, dWc)
+                self._euler_step(X_hc1_sc2, U_list[0][sc:], sigma_f, hc, dWc)
+                self._euler_step(X_hc2_sc1, U_list[1][:sc], sigma_f, hc, dWc)
+                self._euler_step(X_hc2_sc2, U_list[1][sc:], sigma_f, hc, dWc)
+                
+            F_fine = self.Func(X_hf_sf)
+            if l>0:
+                F_coarse_antithetic = -0.5 * (self.Func(X_hc1_sf) + self.Func(X_hc2_sf))
+                F_coarse_antithetic = F_coarse_antithetic - 0.5 * (self.Func(X_hf_sc1) - \
+                        0.5 * (self.Func(X_hc1_sc1) + self.Func(X_hc2_sc1)))
+                F_coarse_antithetic = F_coarse_antithetic - 0.5 * (self.Func(X_hf_sc2) - \
+                        0.5 * (self.Func(X_hc1_sc2) + self.Func(X_hc2_sc2)))
+            else:
+                F_coarse_antithetic = 0
             
             # sums level l
-            sums_level_l[0] += np.sum(F_fine - F_coarse_antithetic)      
-            sums_level_l[1] += np.sum((F_fine - F_coarse_antithetic)**2)  
-            sums_level_l[2] += np.sum((F_fine - F_coarse_antithetic)**3)  
-            sums_level_l[3] += np.sum((F_fine - F_coarse_antithetic)**4)  
+            sums_level_l[0] += np.sum(F_fine + F_coarse_antithetic)      
+            sums_level_l[1] += np.sum((F_fine + F_coarse_antithetic)**2)  
+            sums_level_l[2] += np.sum((F_fine + F_coarse_antithetic)**3)  
+            sums_level_l[3] += np.sum((F_fine + F_coarse_antithetic)**4)  
             sums_level_l[4] += np.sum(F_fine)
             sums_level_l[5] += np.sum(F_fine**2)  
         return sums_level_l
 
-
-    def get_cost(self, l):
-        cost = self.n0 * (1+self.s0 * self.M ** l)
-        return cost
     
+    def get_cost(self, l):
+        cost = self.n0 * self.M ** l * (1 + self.s0 * self.M ** l)
+        return cost
+
     
     def get_cost_std_MC(self, eps, Nl):
         """Cost of standard Monte Carlo
@@ -243,10 +285,7 @@ class Bayesian_logistic(MLMC):
         
         L = len(Nl)
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * self.M**(L)) 
-        #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * 2**(self.gamma*L)) 
-        CL = self.n0 * ((self.M ** L) * (1 + self.s0 * self.M ** L))
-        cost = 2/eps**2 * self.var_Pf[-1] * CL
-                
+        cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * 2**(self.gamma*L)) 
         return cost
     
     def get_cost_MLMC(self, eps, Nl):
@@ -261,9 +300,7 @@ class Bayesian_logistic(MLMC):
         """
         #cost = sum(Nl * self.n0 * self.M ** np.arange(len(Nl)))
         L = len(Nl)
-        cost = 0
-        for idx, nl in enumerate(Nl):
-            cost += nl * self.n0 * (self.M**idx)*(1+self.s0 * self.M**idx)
+        cost = sum(Nl * self.n0 * (2**self.gamma) ** np.arange(len(Nl)))
         return cost
 
     def get_weak_error(self, ml):
@@ -296,7 +333,7 @@ def synthetic(dim : int, data_size : int):
     data_x = torch.randn(data_size, dim)
     data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
     
-    params = torch.randn(dim+1, 1) - 0.2
+    params = torch.randn(dim+1, 1) - 0.4
     data_y = torch.matmul(data_x, params)
     data_y = torch.sign(torch.clamp(data_y, 0))
 
@@ -354,12 +391,11 @@ if __name__ == '__main__':
     bayesian_logregress = Bayesian_logistic(**MLMC_CONFIG)
     
     # 1. Convergence tests
-    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_s.txt")
+    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_h_s_diagonal.txt")
 
     # 2. get complexities
     Eps = [0.1,0.01, 0.005, 0.001, 0.0005]
-    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_s.txt")
+    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_diagonal.txt")
 
     # 3. plot
-    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_s.pdf")
-    
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h_s_diagonal.pdf")

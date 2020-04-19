@@ -1,6 +1,6 @@
 import sys
 import os
-path = os.path.abspath(__file__)
+path = os.path.join(os.path.dirname(__file__),'..')
 sys.path.append(path)
 
 
@@ -15,7 +15,7 @@ import math
 from itertools import product
 import matplotlib.pyplot as plt
 
-from utils import MIMC 
+from mlmc_mimc import MIMC 
 
 
 
@@ -239,16 +239,16 @@ class Bayesian_logistic(MIMC):
 
                         self._euler_step(X_hf_sf, U, sigma_f, hf, dWf)
                         
-                        self._euler_step(X_hf_sc1, U[:sc], sigma_c, hf, dWf)
-                        self._euler_step(X_hf_sc2, U[sc:], sigma_c, hf, dWf)
+                        self._euler_step(X_hf_sc1, U[:sc], sigma_f, hf, dWf)
+                        self._euler_step(X_hf_sc2, U[sc:], sigma_f, hf, dWf)
                 
                     self._euler_step(X_hc1_sf, U_list[0], sigma_f, hc, dWc)
                     self._euler_step(X_hc2_sf, U_list[1], sigma_f, hc, dWc)
                     
-                    self._euler_step(X_hc1_sc1, U_list[0][:sc], sigma_c, hc, dWc)
-                    self._euler_step(X_hc1_sc2, U_list[0][sc:], sigma_c, hc, dWc)
-                    self._euler_step(X_hc2_sc1, U_list[1][:sc], sigma_c, hc, dWc)
-                    self._euler_step(X_hc2_sc2, U_list[1][sc:], sigma_c, hc, dWc)
+                    self._euler_step(X_hc1_sc1, U_list[0][:sc], sigma_f, hc, dWc)
+                    self._euler_step(X_hc1_sc2, U_list[0][sc:], sigma_f, hc, dWc)
+                    self._euler_step(X_hc2_sc1, U_list[1][:sc], sigma_f, hc, dWc)
+                    self._euler_step(X_hc2_sc2, U_list[1][sc:], sigma_f, hc, dWc)
                 
             F_fine = self.Func(X_hf_sf)
             if lh>0 and ls>0:
