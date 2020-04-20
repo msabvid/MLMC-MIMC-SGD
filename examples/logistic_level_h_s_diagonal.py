@@ -164,7 +164,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)**2
+            F = torch.norm(nets.params, p=2, dim=1)
         #F = nets
         return F.cpu().numpy()
 
@@ -187,8 +187,7 @@ class Bayesian_logistic(MLMC):
         # drift estimation level
         sf = self.s0 * self.M ** l
         sc = int(sf/self.M)
-        sigma_f = 1/math.sqrt(sf)
-        sigma_c = 1/math.sqrt(sc)
+        sigma_f = 1/math.sqrt(self.data_size)
         
 
         

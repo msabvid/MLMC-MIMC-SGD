@@ -169,7 +169,7 @@ class Bayesian_logistic(MIMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)**2
+            F = torch.norm(nets.params, p=2, dim=1)
         #with torch.no_grad():
         #    F = nets(self.data_X[-1,:].unsqueeze(0))
         #F = nets
@@ -196,8 +196,7 @@ class Bayesian_logistic(MIMC):
         # drift estimation level
         sf = self.s0 * self.M ** ls
         sc = int(sf/self.M)
-        sigma_f = 1/math.sqrt(sf)
-        sigma_c = 1/math.sqrt(sc)
+        sigma_f = 1/math.sqrt(self.data_size)
         
         
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
@@ -312,8 +311,11 @@ class Bayesian_logistic(MIMC):
         Lh,Ls = Nl.shape
         cost = 0
         for lh,ls in product(range(Lh),range(Ls)):
-            x = np.array([lh,ls]).reshape(1,-1)
-            cost += Nl[lh,ls] * 2**(self.gamma.predict(x))
+            #x = np.array([lh,ls]).reshape(1,-1)
+            #cost += Nl[lh,ls] * 2**(self.gamma.predict(x))
+            cl = self.n0 * (self.M ** lh) * (1 + self.s0 * self.M ** ls)
+            cost += Nl[lh, ls] * cl
+
         return cost
         
 

@@ -165,7 +165,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)**2
+            F = torch.norm(nets.params, p=2, dim=1)
         #with torch.no_grad():
         #    F = nets(self.data_X[-1,:].unsqueeze(0))
         #F = nets
@@ -179,7 +179,7 @@ class Bayesian_logistic(MLMC):
 
         """
         dim = self.data_X.shape[1]-1
-        sigma = 1/math.sqrt(self.s0)
+        sigma = 1/math.sqrt(self.data_size)
         
         nf = self.n0 * self.M ** l # n steps in fine time discretisation
         hf = self.T/nf # step size in coarse time discretisation
