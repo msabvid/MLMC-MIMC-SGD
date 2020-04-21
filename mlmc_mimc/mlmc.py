@@ -8,6 +8,7 @@ from scipy.stats import linregress
 import sys
 import time
 import matplotlib.pyplot as plt
+import pickle
 
 class WeakConvergenceFailure(Exception):
     pass
@@ -284,7 +285,7 @@ class MLMC(ABC):
         for idx, (eps, Nl) in enumerate(zip(Eps, Nl_list)):
             ax[1,0].plot(Nl, styles[idx], label=str(eps))
         
-        ax[1,0].legend()
+        ax[1,0].legend(loc="upper right")
         ax[1,0].set_yscale('log')
         ax[1,0].set_xlabel("level $l$")
         ax[1,0].set_ylabel("$N_l$")
@@ -296,11 +297,25 @@ class MLMC(ABC):
         ax[1,1].set_xscale('log')
         ax[1,1].set_xlabel("accuracy $\epsilon$")
         ax[1,1].set_ylabel("$\epsilon^2$ cost")
-
+        ax[1,1].legend(loc="upper right")
         fig.tight_layout()
 
 
         fig.savefig(filename)
+
+    def save(self, Eps, Nl_list, mlmc_cost, std_cost, filename):
+        output = {'Eps':Eps,
+                'Nl_list':Nl_list,
+                'mlmc_cost':mlmc_cost,
+                'std_cost':std_cost,
+                'avg_Pf_Pc':self.avg_Pf_Pc,
+                'var_Pf_Pc':self.var_Pf_Pc,
+                'alpha':self.alpha,
+                'beta':self.beta,
+                'gamma':self.gamma}
+
+        with open(filename,"wb") as f:
+            pickle.dump(output, f)
 
     
     def get_alpha(self):

@@ -10,7 +10,7 @@ import time
 from itertools import product
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
-
+import pickle
 
 class WeakConvergenceFailure(Exception):
     pass
@@ -333,6 +333,19 @@ class MIMC(ABC):
         fig.savefig(f+"_cost.pdf")
 
 
+    def save(self, Eps, Nl_list, mlmc_cost, std_cost, filename):
+        output = {'Eps':Eps,
+                'Nl_list':Nl_list,
+                'mlmc_cost':mlmc_cost,
+                'std_cost':std_cost,
+                'avg_Pf_Pc':self.avg_Pf_Pc,
+                'var_Pf_Pc':self.var_Pf_Pc,
+                'alpha':self.alpha,
+                'beta':self.beta,
+                'gamma':self.gamma}
+
+        with open(filename,"wb") as f:
+            pickle.dump(output, f)
     
     
     def get_alpha(self):
