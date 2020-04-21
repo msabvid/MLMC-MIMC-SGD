@@ -12,6 +12,7 @@ import copy
 import argparse
 import numpy as np
 import math
+from sklearn.datasets import make_blobs
 from mlmc_mimc import MLMC 
 
 
@@ -334,15 +335,15 @@ def synthetic(dim : int, data_size : int):
     
     data_y : torch.Tensor of size (data_size, 1)
     """
-    data_x = torch.randn(data_size, dim)
+
+    data_x = 5*torch.randn(data_size, dim)
     data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
-    
+    #
     params = torch.randn(dim+1, 1) - 0.4
     data_y = torch.matmul(data_x, params)
     data_y = torch.sign(torch.clamp(data_y, 0))
-
     
-    return params, data_x, data_y
+    return data_x, data_y
 
 
 if __name__ == '__main__':
@@ -353,15 +354,15 @@ if __name__ == '__main__':
             help='refinement value')
     parser.add_argument('--N', type=int, default=5000, \
             help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=4, \
+    parser.add_argument('--L', type=int, default=6, \
             help='levels for convergence tests')
-    parser.add_argument('--s0', type=int, default=100, \
+    parser.add_argument('--s0', type=int, default=2, \
             help='initial value of data batch size')
     parser.add_argument('--N0', type=int, default=10, \
             help='initial number of samples')
     parser.add_argument('--Lmin', type=int, default=0, \
             help='minimum refinement level')
-    parser.add_argument('--Lmax', type=int, default=10, \
+    parser.add_argument('--Lmax', type=int, default=8, \
             help='maximum refinement level')
     parser.add_argument('--device', default='cpu')
     parser.add_argument('--dim', type=int, default=2,
@@ -375,7 +376,7 @@ if __name__ == '__main__':
     
 
     # Target Logistic regression, and synthetic data
-    params, data_X, data_Y = synthetic(args.dim, data_size = args.s0 * args.M**args.Lmax)
+    data_X, data_Y = synthetic(args.dim, data_size = args.s0 * args.M**args.Lmax)
     data_X = data_X.to(device=device)
     data_Y = data_Y.to(device=device)
     

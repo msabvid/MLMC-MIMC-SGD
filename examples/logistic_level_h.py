@@ -13,6 +13,7 @@ import argparse
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+from sklearn.datasets import make_blobs
 from mlmc_mimc import MLMC 
 
 
@@ -165,7 +166,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)
+            F = torch.norm(nets.params, p=2, dim=1)**2
         #with torch.no_grad():
         #    F = nets(self.data_X[-1,:].unsqueeze(0))
         #F = nets
@@ -308,15 +309,21 @@ def synthetic(dim : int, data_size : int):
     
     data_y : torch.Tensor of size (data_size, 1)
     """
-    data_x = torch.randn(data_size, dim)
+    #data_x = torch.randn(data_size, dim)
+    #data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
+    #
+    #params = torch.randn(dim+1, 1) - 0.4
+    #data_y = torch.matmul(data_x, params)
+    #data_y = torch.sign(torch.clamp(data_y, 0))
+
+    data_x = 2*torch.randn(data_size, dim)
     data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
-    
+    #
     params = torch.randn(dim+1, 1) - 0.4
     data_y = torch.matmul(data_x, params)
     data_y = torch.sign(torch.clamp(data_y, 0))
-
     
-    return params, data_x, data_y
+    return data_x, data_y
 
 
 if __name__ == '__main__':
@@ -327,9 +334,9 @@ if __name__ == '__main__':
             help='refinement value')
     parser.add_argument('--N', type=int, default=5000, \
             help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=4, \
+    parser.add_argument('--L', type=int, default=6, \
             help='levels for convergence tests')
-    parser.add_argument('--s0', type=int, default=1000, \
+    parser.add_argument('--s0', type=int, default=300, \
             help='initial value of data batch size')
     parser.add_argument('--N0', type=int, default=10, \
             help='initial number of samples')
@@ -349,7 +356,7 @@ if __name__ == '__main__':
     
 
     # Target Logistic regression, and synthetic data
-    params, data_X, data_Y = synthetic(args.dim, data_size = 5000)
+    data_X, data_Y = synthetic(args.dim, data_size = 512)
     data_X = data_X.to(device=device)
     data_Y = data_Y.to(device=device)
     
@@ -359,7 +366,7 @@ if __name__ == '__main__':
             'M':args.M,
             'T':2,
             's0':args.s0,
-            'n0':2, # initial number of steps at level 0
+            'n0':10, # initial number of steps at level 0
             'data_X':data_X,
             'data_Y':data_Y,
             'device':device,
@@ -372,9 +379,11 @@ if __name__ == '__main__':
     bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test.txt")
 
     # 2. get complexities
-    Eps = [0.1,0.01, 0.005, 0.001, 0.0005]
+    Eps = [0.1,0.01, 0.005, 0.001]#, 0.0005]
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test.txt")
 
     # 3. plot
     bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h.pdf")
     
+    # 4. save
+    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h_data.txt")

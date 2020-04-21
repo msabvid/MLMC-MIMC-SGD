@@ -12,6 +12,7 @@ import copy
 import argparse
 import numpy as np
 import math
+from sklearn.datasets import make_blobs
 from mlmc_mimc import MLMC 
 
 
@@ -142,8 +143,8 @@ class Bayesian_logistic(MLMC):
         nets.zero_grad()
         #loglik = nets.get_loglikelihood(self.data_X[U,:], self.data_Y[U,:])
         #loglik.backward(torch.ones_like(loglik))
-        
-        grad_loglik = nets.get_gradloglikelihood_explicitely(self.data_X[U,:], self.data_Y[U, :])
+        with torch.no_grad():
+            grad_loglik = nets.get_gradloglikelihood_explicitely(self.data_X[U,:], self.data_Y[U, :])
         nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
                 sigma * dW)
         #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
@@ -164,7 +165,7 @@ class Bayesian_logistic(MLMC):
 
         """
         with torch.no_grad():
-            F = torch.norm(nets.params, p=2, dim=1)
+            F = torch.norm(nets.params, p=2, dim=1)**2
         #F = nets
         return F.cpu().numpy()
 
@@ -293,15 +294,23 @@ def synthetic(dim : int, data_size : int):
     
     data_y : torch.Tensor of size (data_size, 1)
     """
-    data_x = torch.randn(data_size, dim)
+    data_x = 2*torch.randn(data_size, dim)
     data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
-    
+    #
     params = torch.randn(dim+1, 1) - 0.4
     data_y = torch.matmul(data_x, params)
     data_y = torch.sign(torch.clamp(data_y, 0))
 
+    #data_x, data_y = make_blobs(n_samples = np.array([int(0.2*data_size), data_size - int(0.2*data_size)]), \
+    #                 n_features=2, centers=np.array([[-10,-10],[5,30]]), \
+    #                 cluster_std = [3,5])
+    #data_y = data_y.reshape(-1,1)
+    #data_x = torch.tensor(data_x).float()
+    #data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
+    #data_y = torch.tensor(data_y).float()
+    return data_x, data_y
+    #return params, data_x, data_y
     
-    return params, data_x, data_y
 
 
 if __name__ == '__main__':
@@ -312,15 +321,15 @@ if __name__ == '__main__':
             help='refinement value')
     parser.add_argument('--N', type=int, default=5000, \
             help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=4, \
+    parser.add_argument('--L', type=int, default=5, \
             help='levels for convergence tests')
-    parser.add_argument('--s0', type=int, default=100, \
+    parser.add_argument('--s0', type=int, default=2, \
             help='initial value of data batch size')
     parser.add_argument('--N0', type=int, default=10, \
             help='initial number of samples')
     parser.add_argument('--Lmin', type=int, default=0, \
             help='minimum refinement level')
-    parser.add_argument('--Lmax', type=int, default=10, \
+    parser.add_argument('--Lmax', type=int, default=8, \
             help='maximum refinement level')
     parser.add_argument('--device', default='cpu')
     parser.add_argument('--dim', type=int, default=2,
@@ -334,7 +343,7 @@ if __name__ == '__main__':
     
 
     # Target Logistic regression, and synthetic data
-    params, data_X, data_Y = synthetic(args.dim, data_size = args.s0 * args.M**args.Lmax)
+    data_X, data_Y = synthetic(args.dim, data_size = args.s0 * args.M**args.Lmax)
     data_X = data_X.to(device=device)
     data_Y = data_Y.to(device=device)
     
@@ -344,7 +353,7 @@ if __name__ == '__main__':
             'M':args.M,
             'T':2,
             's0':args.s0,
-            'n0':100, # initial number of steps at level 0
+            'n0':50, # initial number of steps at level 0
             'data_X':data_X,
             'data_Y':data_Y,
             'device':device,
@@ -357,9 +366,11 @@ if __name__ == '__main__':
     bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_s.txt")
 
     # 2. get complexities
-    Eps = [0.1,0.01, 0.005, 0.001, 0.0005]
+    Eps = [0.1,0.01, 0.005, 0.001]#, 0.0005]
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_s.txt")
 
     # 3. plot
     bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_s.pdf")
     
+    # 4. save
+    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_s_data.txt")
