@@ -40,52 +40,29 @@ class LogisticNets(nn.Module):
         
         super().__init__()
         self.params = nn.Parameter(torch.zeros(N, dim+1))
+        self.activation = nn.Sigmoid()
+        #self.nets = nn.ModuleList([LogisticNet(dim) for n in range(N)])
 
-    def forward(self, data_X):
-        y = torch.matmul(data_X, self.params.T)
+
+    def forward(self, idx, data_X):
+        y = torch.matmul(data_X, self.params[idx, :].view(-1,1))
         y = nn.Sigmoid()(y)
         return y
     
-    def forward2(self, data_X, data_Y):
-        z = torch.matmul(data_X, self.params.T) * data_Y
-        output = nn.Sigmoid()(z)
-        return output
-
-    def get_loglikelihood(self, data_X, data_Y):
-        """Get the loglikelihood of the data
-        y\in {0,1}
-        loglik = \sum y * log(f(x)) + (1-y) * log(1-f(x))
+    
+    def forward_backward_pass(self, data_X, data_Y, U):
+        loss_fn = nn.BCELoss(reduction='none')
+        x = data_X[U,:] # x has shape (N, subsample_size, (dim+1))
+        target = data_Y[U,:]
         
-        Parameters
-        ----------
-        data_X : np.ndarray of size (batch_size, dim+1)
-            covariates
-        data_Y : np.ndarray of size (batch_size, 1)
-            binary data
-        """
-        pred = self.forward(data_X)
-        # we add 1e-5 to avoid numerical problems
-        loglik = data_Y * torch.log(pred) + (1-data_Y) * torch.log(1 - pred)
-        loglik = loglik.mean(0, keepdim=True)
-        return loglik
+        y = torch.bmm(x,self.params.unsqueeze(2))
+        y = self.activation(y)
+        
+        loss = loss_fn(y,target).squeeze(2)
+        loss = loss.mean(1)
 
-    def get_gradloglikelihood_explicitely(self, data_X, data_Y):
-        """Get gradient of the loglikelihood of the data explicitely
-        without using automatic differentiation
-        If y\in{-1,1}
-        f(x) = \sigmoid(z) where z = matmul(x, params.T) * y
-        f'(z) = 1/sigmoid(z) * sigmoid(z) * (1-sigmoid(z))
-
-        """
-        data_Y = 2*data_Y - 1
-        pred = self.forward2(data_X, data_Y) 
-        pred = pred.unsqueeze(2)
-        data_X = data_X.unsqueeze(1)
-        data_Y = data_Y.unsqueeze(1)
-        grad_loglik = (1-pred) * data_X * data_Y
-        grad_loglik = grad_loglik.mean(0)
-        return grad_loglik
-
+        loss.backward(torch.ones_like(loss))
+        return 0 
 
 
         
@@ -138,18 +115,13 @@ class Bayesian_logistic(MLMC):
         dW : Brownian
             Brownian motion
         """
-        with torch.no_grad():
-            pred = nets(data_X[U,:])
-
         nets.zero_grad()
-        #loglik = nets.get_loglikelihood(self.data_X[U,:], self.data_Y[U,:])
-        #loglik.backward(torch.ones_like(loglik))
+        nets.forward_backward_pass(self.data_X, self.data_Y, U)
         
-        grad_loglik = nets.get_gradloglikelihood_explicitely(self.data_X[U,:], self.data_Y[U, :])
-        nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
-                sigma * dW)
-        #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
+        #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
         #        sigma * dW)
+        nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
+                sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
         return 0
@@ -205,14 +177,14 @@ class Bayesian_logistic(MLMC):
             if l==0:
                 for n in range(int(nf)):
                     dWf = math.sqrt(hf) * torch.randn_like(dWf)
-                    U = np.random.choice(self.data_size, self.s0, replace=False)
+                    U = np.random.choice(self.data_size, (N2,self.s0))
                     self._euler_step(X_f, U, sigma, hf, dWf)
             else:
                 for n in range(int(nc)):
                     dWc = dWc * 0
                     U_list = []
                     for m in range(self.M):
-                        U = np.random.choice(self.data_size, self.s0, replace=False)
+                        U = np.random.choice(self.data_size, (N2,self.s0))
                         U_list.append(U)
                         dWf = math.sqrt(hf) * torch.randn_like(dWf)
                         dWc += dWf
