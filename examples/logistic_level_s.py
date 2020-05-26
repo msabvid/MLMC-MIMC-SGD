@@ -85,7 +85,8 @@ class Bayesian_logistic(MLMC):
         """ Init weights with prior
 
         """
-        net.params.data.copy_(mu + std * torch.randn_like(net.params))
+        #net.params.data.copy_(mu + std * torch.randn_like(net.params))
+        net.params.data.copy_(torch.zeros_like(net.params))
 
     def _grad_logprior(self, x):
         """
@@ -119,7 +120,7 @@ class Bayesian_logistic(MLMC):
         
         #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
         #        sigma * dW)
-        nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
+        nets.params.data.copy_(nets.params.data - h/2*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
                 sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
@@ -173,7 +174,8 @@ class Bayesian_logistic(MLMC):
 
             for n in range(int(nf)):
                 dW = math.sqrt(hf) * torch.randn_like(dW)
-                U = np.random.choice(self.data_size, (N2,sf))
+                U = np.random.choice(self.data_size, (N2,sf), replace=True)
+                #U = np.array([np.random.choice(self.data_size, sf, replace=False) for i in range(N2)])
                 self._euler_step(X_f, U, sigma_f, hf, dW)
                 
                 if l>0:
@@ -218,7 +220,7 @@ class Bayesian_logistic(MLMC):
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * self.M**(L)) 
         #cost = 2/eps**2 * self.var_Pf[-1] * (self.n0 * 2**(self.gamma*L)) 
         CL = self.n0 *  (1 + self.s0 * self.M ** L)
-        cost = 2/eps**2 * self.var_Pf[-1] * CL
+        cost = 2/eps**2 * self.var_Pf[min(L, len(self.var_Pf)-1)] * CL
                 
         return cost
     
@@ -238,6 +240,24 @@ class Bayesian_logistic(MLMC):
         for idx, nl in enumerate(Nl):
             cost += nl * self.n0 * (1+self.s0 * self.M**idx)
         return cost
+    
+    
+    def get_target(self, logfile):
+
+        self.write(logfile, "\n***************************\n")
+        self.write(logfile, "***  Calculating target ***\n")
+        self.write(logfile, "***************************\n")
+        L = self.Lmax
+        sums_level_l = self.mlmc_fn(L, 50000)
+        avg_Pf = sums_level_l[4]/50000
+        self.target = avg_Pf 
+        self.write(logfile, "target = {:.4f}\n\n".format(self.target))
+        return 1
+
+    
+    def get_weak_error_from_target(self, P):
+        weak_error = np.abs(P-self.target)
+        return weak_error
 
     def get_weak_error(self, ml):
         """Get weak error of MLMC approximation
@@ -269,7 +289,7 @@ def synthetic(dim : int, data_size : int):
     data_x = 2*torch.randn(data_size, dim)
     data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
     #
-    params = torch.randn(dim+1, 1) - 0.4
+    params = torch.randn(dim+1, 1)-0.2 
     data_y = torch.matmul(data_x, params)
     data_y = torch.sign(torch.clamp(data_y, 0))
 
@@ -291,13 +311,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--M', type=int, default=2, \
             help='refinement value')
-    parser.add_argument('--N', type=int, default=5000, \
+    parser.add_argument('--N', type=int, default=10000, \
             help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=5, \
+    parser.add_argument('--L', type=int, default=6, \
             help='levels for convergence tests')
     parser.add_argument('--s0', type=int, default=2, \
             help='initial value of data batch size')
-    parser.add_argument('--N0', type=int, default=10, \
+    parser.add_argument('--N0', type=int, default=2, \
             help='initial number of samples')
     parser.add_argument('--Lmin', type=int, default=0, \
             help='minimum refinement level')
@@ -323,9 +343,9 @@ if __name__ == '__main__':
             'Lmax':args.Lmax,
             'N0':args.N0,
             'M':args.M,
-            'T':2,
+            'T':5,
             's0':args.s0,
-            'n0':50, # initial number of steps at level 0
+            'n0':100, # initial number of steps at level 0
             'data_X':data_X,
             'data_Y':data_Y,
             'device':device,
@@ -336,9 +356,11 @@ if __name__ == '__main__':
     
     # 1. Convergence tests
     bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_s.txt")
+    bayesian_logregress.save_convergence_test("logistic_level_s_data.txt")
 
     # 2. get complexities
-    Eps = [0.1,0.01, 0.005, 0.001]#, 0.0005]
+    Eps = [0.1, 0.01, 0.001,0.0001]#, 0.0005]
+    #bayesian_logregress.get_target("convergence_test_s.txt")
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_s.txt")
 
     # 3. plot

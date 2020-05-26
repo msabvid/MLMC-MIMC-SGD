@@ -114,6 +114,9 @@ class MLMC(ABC):
             # estimate remaining error and decide whether a new level is required
             converged = (dNl < 0.01 * Nl)
             if all(converged):
+                
+                #P = sum(suml[0,:]/Nl)
+                #if self.get_weak_error_from_target(P) > np.sqrt(1/2) * eps:
                 if self.get_weak_error(ml) > np.sqrt(1/2) * eps:
                     if L == self.Lmax:
                         raise WeakConvergenceFailure("Failed to achieve weak convergence")
@@ -135,6 +138,7 @@ class MLMC(ABC):
         
         # finally, evaluate the multi-level estimator
         P = sum(suml[0,:]/Nl)
+        Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
         return P, Nl
 
 
@@ -303,12 +307,28 @@ class MLMC(ABC):
 
         fig.savefig(filename)
 
+
+    def save_convergence_test(self, filename):
+        output = {'avg_Pf_Pc':self.avg_Pf_Pc,
+                'avg_Pf':self.avg_Pf,
+                'var_Pf':self.var_Pf,
+                'var_Pf_Pc':self.var_Pf_Pc,
+                'alpha':self.alpha,
+                'beta':self.beta,
+                'gamma':self.gamma}
+
+        with open(filename,"wb") as f:
+            pickle.dump(output, f)
+    
+    
     def save(self, Eps, Nl_list, mlmc_cost, std_cost, filename):
         output = {'Eps':Eps,
                 'Nl_list':Nl_list,
                 'mlmc_cost':mlmc_cost,
                 'std_cost':std_cost,
                 'avg_Pf_Pc':self.avg_Pf_Pc,
+                'avg_Pf':self.avg_Pf,
+                'var_Pf':self.var_Pf,
                 'var_Pf_Pc':self.var_Pf_Pc,
                 'alpha':self.alpha,
                 'beta':self.beta,
@@ -337,6 +357,13 @@ class MLMC(ABC):
     @abstractmethod
     def get_cost_std_MC(self, eps, Nl):
         """get cost of standard Monte Carlo
+
+        """
+        ...
+    
+    @abstractmethod
+    def get_weak_error_from_target(self, P):
+        """Test weak convergence
 
         """
         ...

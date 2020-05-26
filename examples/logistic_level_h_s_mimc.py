@@ -85,7 +85,8 @@ class Bayesian_logistic(MIMC):
         """ Init weights with prior
 
         """
-        net.params.data.copy_(mu + std * torch.randn_like(net.params))
+        #net.params.data.copy_(mu + std * torch.randn_like(net.params))
+        net.params.data.copy_(torch.zeros_like(net.params))
 
     def _grad_logprior(self, x):
         """
@@ -119,7 +120,7 @@ class Bayesian_logistic(MIMC):
         
         #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
         #        sigma * dW)
-        nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
+        nets.params.data.copy_(nets.params.data - h/2*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
                 sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
@@ -324,6 +325,8 @@ class Bayesian_logistic(MIMC):
         for l1, l2 in zip(range(L+1), [L+1]*(L+1)):
             sums_level_l = self.mlmc_fn((l1,l2),5000)
             weak_error += sums_level_l[0]/5000
+        sums_level_l = self.mlmc_fn((L+1,L+1),5000)
+        weak_error += sums_level_l[0]/5000
         return abs(weak_error)
         
             
@@ -366,7 +369,7 @@ if __name__ == '__main__':
             help='levels for convergence tests')
     parser.add_argument('--s0', type=int, default=2, \
             help='initial value of data batch size')
-    parser.add_argument('--N0', type=int, default=10, \
+    parser.add_argument('--N0', type=int, default=2, \
             help='initial number of samples')
     parser.add_argument('--Lmin', type=int, default=0, \
             help='minimum refinement level')
@@ -392,7 +395,7 @@ if __name__ == '__main__':
             'Lmax':args.Lmax,
             'N0':args.N0,
             'M':args.M,
-            'T':2,
+            'T':5,
             's0':args.s0,
             'n0':10, # initial number of steps at level 0
             'data_X':data_X,
@@ -407,8 +410,8 @@ if __name__ == '__main__':
     bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_h_s_mimc.txt")
 
     # 2. get complexities
-    Eps = [0.1,0.01, 0.005, 0.001]#, 0.0005]#, 0.0001]
-    bayesian_logregress.get_target("convergence_test_h_s_mimc.txt")
+    Eps = [0.1,0.01, 0.001, 0.0005]#, 0.0005]#, 0.0001]
+    #bayesian_logregress.get_target("convergence_test_h_s_mimc.txt")
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_mimc.txt")
 
     # 3. plot
