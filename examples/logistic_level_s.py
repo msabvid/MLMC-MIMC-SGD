@@ -120,7 +120,7 @@ class Bayesian_logistic(MLMC):
         
         #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
         #        sigma * dW)
-        nets.params.data.copy_(nets.params.data - h/2*(1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
+        nets.params.data.copy_(nets.params.data - h/2*(-1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
                 sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
