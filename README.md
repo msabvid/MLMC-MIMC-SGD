@@ -17,3 +17,7 @@ For mathematical details, see
 Code initially based on https://bitbucket.org/pefarrell/pymlmc/src/master/.
 
 ## Running the code
+
+```
+python 
+```
