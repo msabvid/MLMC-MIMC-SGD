@@ -227,6 +227,43 @@ class MLMC(ABC):
         return alpha, beta, gamma
 
 
+    
+    def estimate_V_N_unbiased_estimor(self, eps, levels):
+
+        # initialisation
+        alpha = self.alpha
+        beta = self.beta
+        gamma = self.gamma
+
+        theta = 0.5
+        L = self.Lmin + 1
+        Nl = np.zeros(L+1) # this will store number of MC samples per level
+        suml = np.zeros([2,L+1]) # first row:   second row:
+        dNl = 5000 * np.ones(L+1) # this will store the number of remaining samples per level to generate to achieve target variance
+        
+        for l in range(0,L+1):
+            if dNl[l]>0:
+                sums_level_l = self.mlmc_fn(l, int(dNl[l])) # \sum (Y_l-Y_{l-1)}
+                Nl[l] += dNl[l]
+                suml[0,l] += sums_level_l[0]
+                suml[1,l] += sums_level_l[1]
+    
+        # compute the absolute average and variance **at each level**, necessary to calculate additional samples
+        ml = np.abs(suml[0,:]/Nl)
+        Vl = np.maximum(0, suml[1,:]/Nl - ml**2)
+        
+        
+        # set optimal number of additional samples (dNl) in order to minimise total cost for a fixed variance
+        Cl = np.zeros(levels)
+        for idx, nl in enumerate(Cl):
+            Cl[idx] = self.get_cost(idx)
+        for idx in range(len(Vl), levels):
+            Vl = np.append(Vl, Vl[-1]/2**beta)
+    
+        Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
+        return Vl, Ns
+        
+    
     def get_complexities(self,Eps, logfile):
         """Function that returns cost of MLMC and cost of standard Monte Carlo
         for a given epsilon
