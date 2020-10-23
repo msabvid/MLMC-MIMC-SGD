@@ -7,14 +7,14 @@ This repository contains Various Stochastic MCMC methods for Bayesian regression
 - MASGA (Multi-index Antithetic Stochastic Gradient Algorithm). Using Multi-index and antithetic samples at the level of the time discretisation and subsampling on the Stochastic Langevin SDE. 
 For mathematical details, see
 
-    @misc{majka2020multiindex,
-        title={Multi-index Antithetic Stochastic Gradient Algorithm},
-        author={Mateusz B. Majka and Marc Sabate-Vidales and Łukasz Szpruch},
-        year={2020},
-        eprint={2006.06102},
-        archivePrefix={arXiv},
-        primaryClass={stat.ML}
-    }
+        @misc{majka2020multiindex,
+            title={Multi-index Antithetic Stochastic Gradient Algorithm},
+            author={Mateusz B. Majka and Marc Sabate-Vidales and Łukasz Szpruch},
+            year={2020},
+            eprint={2006.06102},
+            archivePrefix={arXiv},
+            primaryClass={stat.ML}
+        }
 
 - Stochastic Langevin Dynamics using Control Variate to reduce the variance of the drift estimator. The control variate is given by an estimator of the MAP of the posterior. This algorithm is taken from the paper [Control Variates for Stochastic Gradient MCMC](https://arxiv.org/abs/1706.05439) and is used for benchmarking purposes. 
 
