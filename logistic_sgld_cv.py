@@ -4,13 +4,14 @@ from abc import ABC, abstractmethod
 import math
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import copy
 import argparse
 import numpy as np
 import math
 from sklearn.datasets import make_blobs
 import tqdm
+import matplotlib.pyplot as plt
 
 from mlmc_mimc import MLMC 
 from lib.data import get_dataset, Dataset_MCMC
@@ -74,21 +75,22 @@ class SGLD():
         self.T = T
         self.n_steps = n_steps
         self.device = device
+        self.data_size = data_X.shape[0]
         
         # we estimate the MAP, and the log-likelihood of the dataset using the MAP
-        self.MAP = self.estimate_MAP(epochs=10,batch_size=100) # object of class LogisticNets
+        self.MAP = self.estimate_MAP(epochs=200,batch_size=100) # object of class LogisticNets
         self.grad_loglik_MAP = self.get_grad_loglik_MAP() # tensor of size (1, self.dim+1)
 
     def estimate_MAP(self, epochs, batch_size):
         """
-        We estimate the MAP using usual SGD
+        We estimate the MAP using usual SGD with RMSprop
         """
         print("estimating MAP for control variate")
         X_f = LogisticNets(dim=self.dim, N=1).to(device=self.device)
         self.init_weights(X_f)
         optimizer = torch.optim.RMSprop(X_f.parameters(), lr=0.001)
-        dataset = Dataset_MCMC(self.data_X, self.data_Y)
-        dataloader = Dataloader(dataset, batch_size=batch_size,
+        dataset = Dataset_MCMC(self.data_X.to("cpu"), self.data_Y.to("cpu"))
+        dataloader = DataLoader(dataset, batch_size=batch_size,
                 shuffle=True, num_workers=1, pin_memory=False)
         loss_fn = nn.BCELoss(reduction='mean')
         pbar = tqdm.tqdm(total=epochs)
@@ -100,12 +102,11 @@ class SGLD():
                 loss.backward()
                 optimizer.step()
             pbar.update(1)
-            pbar.write("")
         return X_f
 
     def get_grad_loglik_MAP(self):
         self.MAP.zero_grad()
-        loss_fn = mm.BCELoss(reduce='sum')
+        loss_fn = nn.BCELoss(reduction='sum')
         pred = self.MAP(self.data_X.to(self.device))
         loss = -loss_fn(pred, self.data_Y.to(self.device)) #!!! I put a minus in front of loss_fn so that we actually compute the log-likelihood! Important for the signs in the Langevin process
         loss.backward()
@@ -205,7 +206,7 @@ class SGLD():
             # we extend MAP and grad_loklik_MAP to run several processes forward at the same time
             grad_loglik_MAP = self.grad_loglik_MAP.repeat((N2,1))
             MAP = copy.deepcopy(self.MAP)
-            MAP.params = self.MAP.params.repeat((N2,1))
+            MAP.params.data = self.MAP.params.data.repeat((N2,1))
 
             self.init_weights(X)
 
@@ -227,11 +228,41 @@ class SGLD():
         return sum1/N, sum2/N
 
 
+def make_plots(path,sgld,*args):
+    """
+    Make plots
+    
+    Parameters
+    ----------
+    path: str
+        path where plot and data should be saved
+    args: List(Dict)
+        each element of args is a dictionary with the following (key,value) pairs
+        - "moment1":E(F(X))
+        - "moment2":E(F(X)**2)
+        - "label":str
+    """
+    if not os.path.exists(path):
+        os.path.makedirs(path)
+    
+    fig, ax = plt.subplots()
+    for d in args:
+        var = d["moment2"] - d["moment1"]**2
+        ax.plot(d["moment1"], label=d["label"])
+        ax.fill_between(
+        
+
+
+
+    
+
+
+
 if __name__ == '__main__':
     
     #CONFIGURATION
     parser = argparse.ArgumentParser()
-    parser.add_argument('--N', type=int, default=5000, help='number samples from posterior')
+    parser.add_argument('--N', type=int, default=20000, help='number samples from posterior')
     parser.add_argument('--device', default='cpu', help='device')
     parser.add_argument('--dim', type=int, default=2, help='dimension of data')
     parser.add_argument('--data_size', type=int, default=512, help="dataset size")
@@ -265,8 +296,12 @@ if __name__ == '__main__':
             data_Y=data_Y,
             device=device)
     
-    # 1. We calculate E(F(X)) and E(F(X**2)) for stochastic Langevin process
+    # 1. We calculate E(F(X)) and E(F(X)**2) for stochastic Langevin process
     sgld_1, sgld_2 = sgld.solve(N=args.N, sf=args.subsample_size)
 
-    # 2. We calculate E(X) and E(X**2) for stochastic Langevin process with control variate
-    sgld_1, sgld_2 = sgld.solve_with_cv(N=args.N, sf=args.subsample_size)
+    # 2. We calculate E(X) and E(F(X)**2) for stochastic Langevin process with control variate
+    sgld_cv_1, sgld_cv_2 = sgld.solve_with_cv(N=args.N, sf=args.subsample_size)
+
+    # Plots
+
+
