@@ -59,7 +59,7 @@ class LogisticNets(nn.Module):
         
         loss = -loss_fn(y,target).squeeze(2) #!!! I put a minus in front of loss_fn so that we actually compute the log-likelihood! Important for the signs in the Langevin process
 
-        loss = loss.mean(1)
+        loss = loss.sum(1)
 
         loss.backward(torch.ones_like(loss))
         return 0 
@@ -78,31 +78,49 @@ class SGLD():
         self.data_size = data_X.shape[0]
         
         # we estimate the MAP, and the log-likelihood of the dataset using the MAP
-        self.MAP = self.estimate_MAP(epochs=200,batch_size=100) # object of class LogisticNets
+        self.MAP = self.estimate_MAP(epochs=500,batch_size=self.data_size) # object of class LogisticNets
         self.grad_loglik_MAP = self.get_grad_loglik_MAP() # tensor of size (1, self.dim+1)
 
     def estimate_MAP(self, epochs, batch_size):
         """
         We estimate the MAP using usual SGD with RMSprop
         """
+        #print("estimating MAP for control variate")
+        #X_f = LogisticNets(dim=self.dim, N=1).to(device=self.device)
+        #self.init_weights(X_f)
+        #optimizer = torch.optim.SGD(X_f.parameters(), lr=0.001, weight_decay=0.001) # we put L2-regularization to account for the log_prior
+        #dataset = Dataset_MCMC(self.data_X.to("cpu"), self.data_Y.to("cpu"))
+        #dataloader = DataLoader(dataset, batch_size=batch_size,
+        #        shuffle=True, num_workers=1, pin_memory=False)
+        #loss_fn = nn.BCELoss(reduction='mean')
+        #pbar = tqdm.tqdm(total=epochs)
+        #for epoch in range(epochs):
+        #    for idx, (x,y) in enumerate(dataloader):
+        #        optimizer.zero_grad()
+        #        pred = X_f(x.to(self.device))
+        #        loss = loss_fn(pred, y.to(self.device))
+        #        loss.backward()
+        #        optimizer.step()
+        #    pbar.update(1)
+        #return X_f
+        hf = self.T/self.n_steps
         print("estimating MAP for control variate")
-        X_f = LogisticNets(dim=self.dim, N=1).to(device=self.device)
-        self.init_weights(X_f)
-        optimizer = torch.optim.RMSprop(X_f.parameters(), lr=0.001)
-        dataset = Dataset_MCMC(self.data_X.to("cpu"), self.data_Y.to("cpu"))
-        dataloader = DataLoader(dataset, batch_size=batch_size,
-                shuffle=True, num_workers=1, pin_memory=False)
-        loss_fn = nn.BCELoss(reduction='mean')
-        pbar = tqdm.tqdm(total=epochs)
-        for epoch in range(epochs):
-            for idx, (x,y) in enumerate(dataloader):
-                optimizer.zero_grad()
-                pred = X_f(x.to(self.device))
-                loss = loss_fn(pred, y.to(self.device))
-                loss.backward()
-                optimizer.step()
+        pbar = tqdm.tqdm(total=self.n_steps)
+        X = LogisticNets(self.dim, N=1).to(device=self.device)
+        self.init_weights(X)
+        
+        sf=self.data_size
+        for step in range(self.n_steps):
+            U = np.random.choice(self.data_size, (1, sf), replace=True)
+            X.zero_grad()
+            X.forward_backward_pass(self.data_X, self.data_Y, U)
+            
+            params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
+                    1/sf*X.params.grad) 
+            X.params.data.copy_(params_updated)
             pbar.update(1)
-        return X_f
+        return X
+
 
     def get_grad_loglik_MAP(self):
         self.MAP.zero_grad()
@@ -119,8 +137,8 @@ class SGLD():
         """ Init weights with prior
 
         """
-        #net.params.data.copy_(mu + std * torch.randn_like(net.params))
-        net.params.data.copy_(torch.zeros_like(net.params))
+        net.params.data.copy_(mu + std * torch.randn_like(net.params))
+        #net.params.data.copy_(torch.zeros_like(net.params))
     
     def grad_logprior(self,x):
         """
@@ -161,7 +179,7 @@ class SGLD():
         hf = self.T/self.n_steps
         sigma = 1/math.sqrt(self.data_size)  
         sum1, sum2 = np.zeros(self.n_steps), np.zeros(self.n_steps) #first and second order moments
-        
+        print("Solving SGLD...")
         pbar = tqdm.tqdm(total=N)
         for N1 in range(0,N,5000):
             N2 = min(5000, N-N1) # we will do batches of paths of size N2
@@ -175,7 +193,7 @@ class SGLD():
                 X.forward_backward_pass(self.data_X, self.data_Y, U)
                 
                 params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
-                        X.params.grad) + sigma*dW
+                        1/sf * X.params.grad) + sigma*dW
                 X.params.data.copy_(params_updated)
                 sum1[step] += np.sum(self.Func(X))
                 sum2[step] += np.sum(self.Func(X)**2)
@@ -198,17 +216,17 @@ class SGLD():
         hf = self.T/self.n_steps
         sigma = 1/math.sqrt(self.data_size)  
         sum1, sum2 = np.zeros(self.n_steps), np.zeros(self.n_steps) #first and second order moments
-        
+        print("Solving SGLD with CV...")
         pbar = tqdm.tqdm(total=N)
         for N1 in range(0,N,5000):
             N2 = min(5000, N-N1) # we will do batches of paths of size N2
             X = LogisticNets(self.dim, N2).to(device=self.device)
+            self.init_weights(X)
             # we extend MAP and grad_loklik_MAP to run several processes forward at the same time
             grad_loglik_MAP = self.grad_loglik_MAP.repeat((N2,1))
             MAP = copy.deepcopy(self.MAP)
             MAP.params.data = self.MAP.params.data.repeat((N2,1))
 
-            self.init_weights(X)
 
             for step in range(self.n_steps):
                 dW = math.sqrt(hf) * torch.randn_like(X.params)
@@ -218,7 +236,7 @@ class SGLD():
                 X.forward_backward_pass(self.data_X, self.data_Y, U)
                 MAP.forward_backward_pass(self.data_X, self.data_Y, U)
                 params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
-                        1/self.data_size*grad_loglik_MAP + (X.params.grad - MAP.params.grad)) + sigma*dW
+                        1/self.data_size*grad_loglik_MAP + 1/sf*(X.params.grad - MAP.params.grad)) + sigma*dW
                 X.params.data.copy_(params_updated)
 
                 sum1[step] += np.sum(self.Func(X))
@@ -228,7 +246,7 @@ class SGLD():
         return sum1/N, sum2/N
 
 
-def make_plots(path,sgld,*args):
+def make_plots(path_results,results):
     """
     Make plots
     
@@ -236,20 +254,24 @@ def make_plots(path,sgld,*args):
     ----------
     path: str
         path where plot and data should be saved
-    args: List(Dict)
+    results: List(Dict)
         each element of args is a dictionary with the following (key,value) pairs
+        - 
         - "moment1":E(F(X))
         - "moment2":E(F(X)**2)
         - "label":str
     """
-    if not os.path.exists(path):
-        os.path.makedirs(path)
+    if not os.path.exists(path_results):
+        os.path.makedirs(path_results)
     
     fig, ax = plt.subplots()
-    for d in args:
+    for d in results:
+        n_steps = range(len(d["moment1"]))
         var = d["moment2"] - d["moment1"]**2
-        ax.plot(d["moment1"], label=d["label"])
-        ax.fill_between(
+        ax.plot(n_steps, d["moment1"], label=d["label"])
+        ax.fill_between(n_steps, d["moment1"]-var, d["moment1"]+var, alpha=0.5)
+    ax.legend()
+    fig.savefig(os.path.join(path_results,"sgld_cv.pdf"))
         
 
 
@@ -268,7 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_size', type=int, default=512, help="dataset size")
     parser.add_argument('--subsample_size', type=int, default=32, help="subsample size")
     parser.add_argument('--T', type=int, default=5, help='horizon time')
-    parser.add_argument('--n_steps', type=int, default=500, help='inumber of steps in time discretiation')
+    parser.add_argument('--n_steps', type=int, default=1000, help='number of steps in time discretisation')
     args = parser.parse_args()
     
     if args.device=='cpu' or (not torch.cuda.is_available()):
@@ -279,13 +301,13 @@ if __name__ == '__main__':
 
     # Target Logistic regression, and synthetic data
     data_X, data_Y = get_dataset(m=args.data_size, d=args.dim,
-            type_regression="logistic", data_dir="./data/")
+        type_regression="logistic", type_data="synthetic", data_dir="./data/")
 
     data_X = data_X.to(device=device)
     data_Y = data_Y.to(device=device)
     
     # path numerical results
-    path_results = "./numerical_results/sgld_cv/logistic_d{}_m{}".format(args.dim, args.data_size)
+    path_results = "./numerical_results/sgld_cv/logistic/synthetic_data_d{}_m{}".format(args.dim, args.data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -303,5 +325,8 @@ if __name__ == '__main__':
     sgld_cv_1, sgld_cv_2 = sgld.solve_with_cv(N=args.N, sf=args.subsample_size)
 
     # Plots
+    results = [dict(moment1=sgld_1, moment2=sgld_2, label="sgld"),
+         dict(moment1=sgld_cv_1, moment2=sgld_cv_2, label="sgld_cv")]
+    make_plots(path_results, results)
 
 
