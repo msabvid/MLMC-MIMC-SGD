@@ -266,10 +266,10 @@ if __name__ == '__main__':
     
     #CONFIGURATION
     parser = argparse.ArgumentParser()
-    parser.add_argument('--N', type=int, default=5000, help='number samples from posterior')
+    parser.add_argument('--N', type=int, default=5000, help='number samples from posterior to calculate E(F(X))')
     parser.add_argument('--device', default='cpu', help='device')
-    parser.add_argument('--dim', type=int, default=2, help='dimension of data')
-    parser.add_argument('--data_size', type=int, default=512, help="dataset size")
+    parser.add_argument('--dim', type=int, default=2, help='dimension of data if data is synthetic')
+    parser.add_argument('--data_size', type=int, default=512, help="dataset size is data is synthetic")
     parser.add_argument('--subsample_size', type=int, default=32, help="subsample size")
     parser.add_argument('--T', type=int, default=10, help='horizon time')
     parser.add_argument('--n_steps', type=int, default=10000, help='number of steps in time discretisation')
@@ -291,7 +291,9 @@ if __name__ == '__main__':
     data_Y = data_Y.to(device=device)
     
     # path numerical results
-    path_results = "./numerical_results/sgld_cv/logistic/{}_d{}_m{}".format(args.type_data, args.dim, args.data_size)
+    dim = data_X.shape[1]
+    data_size = data_X.shape[0]
+    path_results = "./numerical_results/sgld_cv/logistic/{}_d{}_m{}".format(args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -310,8 +312,8 @@ if __name__ == '__main__':
     sgld_cv_1, sgld_cv_2 = sgld.solve_with_cv(N=args.N, sf=args.subsample_size)
 
     # Plots and results
-    results = [dict(moment1=sgld_1, moment2=sgld_2, label="sgld"),
-         dict(moment1=sgld_cv_1, moment2=sgld_cv_2, label="sgld_cv")]
+    results = [dict(moment1=sgld_1, moment2=sgld_2, label="$E(F(X))$ - sgld"),
+         dict(moment1=sgld_cv_1, moment2=sgld_cv_2, label="$E(F(X))$ - sgld_cv")]
     make_plots(path_results, results)
     with open(os.path.join(path_results, "results.pickle"), "wb") as f:
         pickle.dump(results, f)
