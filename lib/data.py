@@ -2,7 +2,8 @@ import numpy as np
 import torch
 import os
 from torch.utils.data import Dataset
-
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
 
 def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", type_data="synthetic", seed=1):
@@ -22,6 +23,19 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
         data = dict(x=data_x,y=data_y)
         filename = "data_logistic_synthetic_d{}_m{}.pth.tar".format(d,m)
         torch.save(data, os.path.join(data_dir, filename))
+    elif type_data=="covtype":
+        data = np.loadtxt(os.path.join(data_dir, "covtype.txt"), delimiter=",")
+        data_x = data[:,:-1]
+        data_y = data[:,-1]
+        X_train, _, Y_train, _ = train_test_split(data_x, data_y, train_size=0.2)
+        scaler = StandardScaler()
+        data_x = torch.tensor(scaler.fit_transform(X_train), dtype=torch.float32)
+        Y_train[Y_train>1] = 0
+        data_y = torch.tensor(Y_train,dtype=torch.float32).reshape(-1,1)
+        
+        data = dict(x=data_x,y=data_y)
+        filename = "data_logistic_covtype.pth.tar".format(d)
+        torch.save(data, os.path.join(data_dir, filename))
     else:
         raise ValueError("Unknown regression {}".format(type_regression))
 
@@ -31,7 +45,11 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
 
 def get_dataset(m: int, d: int, type_regression: str, type_data: str,  data_dir: str):
 
-    filename = os.path.join(data_dir,"data_{}_{}_d{}_m{}.pth.tar".format(type_regression, type_data,d, m))
+    if type_data == "synthetic":
+        filename = os.path.join(data_dir,"data_{}_{}_d{}_m{}.pth.tar".format(type_regression, type_data,d, m))
+    else:
+        filename = os.path.join(data_dir,"data_{}_{}.pth.tar".format(type_regression, type_data,d, m))
+
     if not os.path.exists(filename):
         create_dataset(m=m,d=d,data_dir=data_dir, type_regression=type_regression, type_data=type_data)
     data = torch.load(filename)
