@@ -1,9 +1,5 @@
 import sys
 import os
-path = os.path.join(os.path.dirname(__file__),'..')
-sys.path.append(path)
-
-
 from abc import ABC, abstractmethod
 import math
 import torch
@@ -14,9 +10,9 @@ import numpy as np
 import math
 from itertools import product
 import matplotlib.pyplot as plt
-from sklearn.datasets import make_blobs
-from mlmc_mimc import MIMC 
 
+from mlmc_mimc import MIMC 
+from lib.data import get_dataset
 
 
 class LogisticNets(nn.Module):
@@ -40,26 +36,19 @@ class LogisticNets(nn.Module):
         
         super().__init__()
         self.params = nn.Parameter(torch.zeros(N, dim+1))
-        self.activation = nn.Sigmoid()
         #self.nets = nn.ModuleList([LogisticNet(dim) for n in range(N)])
 
 
-    def forward(self, idx, data_X):
-        y = torch.matmul(data_X, self.params[idx, :].view(-1,1))
-        y = nn.Sigmoid()(y)
-        return y
-    
-    
     def forward_backward_pass(self, data_X, data_Y, U):
         loss_fn = nn.BCELoss(reduction='none')
         x = data_X[U,:] # x has shape (N, subsample_size, (dim+1))
         target = data_Y[U,:]
         
         y = torch.bmm(x,self.params.unsqueeze(2))
-        y = self.activation(y)
+        y = torch.sigmoid(y)
         
-        loss = loss_fn(y,target).squeeze(2)
-        loss = loss.mean(1)
+        loss = -loss_fn(y,target).squeeze(2) #!!! minus to calculate log-likelihood
+        loss = loss.sum(1)
 
         loss.backward(torch.ones_like(loss))
         return 0 
@@ -117,10 +106,9 @@ class Bayesian_logistic(MIMC):
         """
         nets.zero_grad()
         nets.forward_backward_pass(self.data_X, self.data_Y, U)
+        subsample_size = U.shape[1]
         
-        #nets.params.data.copy_(nets.params.data + h*(1/self.data_size * self._grad_logprior(nets.params.data) + grad_loglik) + \
-        #        sigma * dW)
-        nets.params.data.copy_(nets.params.data - h/2*(-1/self.data_size * self._grad_logprior(nets.params.data) + nets.params.grad) + \
+        nets.params.data.copy_(nets.params.data + h/2*(1/self.data_size * self._grad_logprior(nets.params.data) + 1/subsample_size * nets.params.grad) + \
                 sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
@@ -139,9 +127,6 @@ class Bayesian_logistic(MIMC):
         """
         with torch.no_grad():
             F = torch.norm(nets.params, p=2, dim=1)**2
-        #with torch.no_grad():
-        #    F = nets(self.data_X[-1,:].unsqueeze(0))
-        #F = nets
         return F.cpu().numpy()
 
     
@@ -165,7 +150,7 @@ class Bayesian_logistic(MIMC):
         # drift estimation level
         sf = self.s0 * self.M ** ls
         sc = int(sf/self.M)
-        sigma_f = 1/math.sqrt(self.data_size)
+        sigma_f = math.sqrt(2) #1/math.sqrt(self.data_size)
         
         
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
@@ -330,54 +315,26 @@ class Bayesian_logistic(MIMC):
         return abs(weak_error)
         
             
-def synthetic(dim : int, data_size : int):
-    """Creates synthetic dataset for logistic regression
-
-    Parameters
-    ----------
-    dim : int
-        Dimension of the dataset
-    data_size : int
-        Number of points
-
-    Returns
-    -------
-    model : LogisticNet
-
-    data_x : torch.Tensor of size (data_size, dim)
-    
-    data_y : torch.Tensor of size (data_size, 1)
-    """
-
-    data_x = 2*torch.randn(data_size, dim)
-    data_x = torch.cat([torch.ones(data_size, 1), data_x], 1)
-    #
-    params = torch.randn(dim+1, 1) - 0.4
-    data_y = torch.matmul(data_x, params)
-    data_y = torch.sign(torch.clamp(data_y, 0))
-    return data_x, data_y
 
 if __name__ == '__main__':
     
     #CONFIGURATION
     parser = argparse.ArgumentParser()
-    parser.add_argument('--M', type=int, default=2, \
-            help='refinement value')
-    parser.add_argument('--N', type=int, default=5000, \
-            help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=6, \
-            help='levels for convergence tests')
-    parser.add_argument('--s0', type=int, default=2, \
-            help='initial value of data batch size')
-    parser.add_argument('--N0', type=int, default=2, \
-            help='initial number of samples')
-    parser.add_argument('--Lmin', type=int, default=0, \
-            help='minimum refinement level')
-    parser.add_argument('--Lmax', type=int, default=8, \
-            help='maximum refinement level')
-    parser.add_argument('--device', default='cpu')
-    parser.add_argument('--dim', type=int, default=2,
-            help='dimension of data')
+    parser.add_argument('--M', type=int, default=2, help='refinement value')
+    parser.add_argument('--N', type=int, default=5000, help='samples for convergence tests')
+    parser.add_argument('--L', type=int, default=6, help='levels for convergence tests')
+    parser.add_argument('--s0', type=int, default=2, help='initial value of data batch size')
+    parser.add_argument('--N0', type=int, default=2, help='initial number of samples')
+    parser.add_argument('--Lmin', type=int, default=0, help='minimum refinement level')
+    parser.add_argument('--Lmax', type=int, default=8, help='maximum refinement level')
+    parser.add_argument('--device', default='cpu', help='device')
+    parser.add_argument('--dim', type=int, default=2, help='dimension of data')
+    parser.add_argument('--data_size', type=int, default=512, help="data_size")
+    parser.add_argument('--T', type=int, default=5, help='horizon time')
+    parser.add_argument('--n_steps', type=int, default=10, help='inital number of steps in time discretisation')
+    parser.add_argument('--seed', type=int, default=1, help='seed')
+    parser.add_argument('--type_data', type=str, default="synthetic", help="type of data")
+
     args = parser.parse_args()
     
     if args.device=='cpu' or (not torch.cuda.is_available()):
@@ -387,15 +344,23 @@ if __name__ == '__main__':
     
 
     # Target Logistic regression, and synthetic data
-    data_X, data_Y = synthetic(args.dim, data_size = args.s0 * args.M**args.Lmax)
+    data_X, data_Y = get_dataset(m=args.data_size, d=args.dim,
+            type_regression="logistic", data_dir="./data/")
+
     data_X = data_X.to(device=device)
     data_Y = data_Y.to(device=device)
+
+    # path numerical results
+    path_results = "./numerical_results/mimc/logistic/{}_d{}_m{}".format(args.type_data, args.dim, args.data_size)
+    if not os.path.exists(path_results):
+        os.makedirs(path_results)
     
-    MLMC_CONFIG = {'Lmin':args.Lmin,
+    # MIMC config
+    MIMC_CONFIG = {'Lmin':args.Lmin,
             'Lmax':args.Lmax,
             'N0':args.N0,
             'M':args.M,
-            'T':5,
+            'T':args.T,
             's0':args.s0,
             'n0':10, # initial number of steps at level 0
             'data_X':data_X,
@@ -404,18 +369,21 @@ if __name__ == '__main__':
             }
     
     # Bayesian log regressor
-    bayesian_logregress = Bayesian_logistic(**MLMC_CONFIG)
+    bayesian_logregress = Bayesian_logistic(**MIMC_CONFIG)
     
     # 1. Convergence tests
-    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, "convergence_test_h_s_mimc.txt")
+    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, 
+            os.path.join(path_results, "convergence_test_h_s_mimc.txt"))
 
     # 2. get complexities
     Eps = [0.1,0.01, 0.001, 0.0005]#, 0.0005]#, 0.0001]
-    #bayesian_logregress.get_target("convergence_test_h_s_mimc.txt")
-    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, "convergence_test_h_s_mimc.txt")
+    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
+            os.path.join(path_results, "convergence_test_h_s_mimc.txt"))
 
     # 3. plot
-    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h_s_mimc.pdf")
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 
+            os.path.join(path_results, "logistic_level_h_s_mimc.pdf"))
     
     # 4. save
-    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, "logistic_level_h_s_mimc_data.txt")
+    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
+            os.path.join(path_results, "logistic_level_h_s_mimc_data.txt"))

@@ -52,7 +52,7 @@ class LogisticNets(nn.Module):
         x = data_X[U,:] # x has shape (N, subsample_size, (dim+1))
         target = data_Y[U,:]
         
-        y = torch.bmm(x,self.params.unsqueeze(2))
+        y = torch.bmm(x,self.params.unsqueeze(2)) #(N, subsample_size, 1)
         y = self.activation(y)
         
         loss = -loss_fn(y,target).squeeze(2) #!!! I put a minus so that it is the loglikelihood. Important for the signs in the Langevin process
@@ -116,7 +116,7 @@ class Bayesian_logistic(MLMC):
         nets.zero_grad()
         nets.forward_backward_pass(self.data_X, self.data_Y, U)
         subsample_size = U.shape[1]
-        nets.params.data.copy_(nets.params.data + h/2*(1/self.data_size * self._grad_logprior(nets.params.data) + 1/subsample_size * nets.params.grad) + \
+        nets.params.data.copy_(nets.params.data + h/2*(1/self.data_size*self._grad_logprior(nets.params.data) + 1/subsample_size * nets.params.grad) + \
                 sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
@@ -270,10 +270,10 @@ if __name__ == '__main__':
     #CONFIGURATION
     parser = argparse.ArgumentParser()
     parser.add_argument('--M', type=int, default=2, help='refinement value')
-    parser.add_argument('--N', type=int, default=1000, help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=4, help='levels for convergence tests')
+    parser.add_argument('--N', type=int, default=5000, help='samples for convergence tests')
+    parser.add_argument('--L', type=int, default=5, help='levels for convergence tests')
     parser.add_argument('--s0', type=int, default=256, help='initial value of data batch size')
-    parser.add_argument('--N0', type=int, default=2, help='initial number of samples')
+    parser.add_argument('--N0', type=int, default=2, help='initial number of samples for MLMC algorithm')
     parser.add_argument('--Lmin', type=int, default=0, help='minimum refinement level')
     parser.add_argument('--Lmax', type=int, default=8, help='maximum refinement level')
     parser.add_argument('--device', default='cpu', help='device')
@@ -283,8 +283,6 @@ if __name__ == '__main__':
     parser.add_argument('--n_steps', type=int, default=10000, help='number of steps in time discretisation')
     parser.add_argument('--seed', type=int, default=1, help='seed')
     parser.add_argument('--type_data', type=str, default="synthetic", help="type of data")
-    parser.add_argument('--estimate_cost_unbiased', action="store_true", help="estimate cost of unbiased estimator to get an MSE")
-    parser.add_argument('--max_subsample_size', type=int, default=2**13, help="if estimate_cost_unbiased==True, maximum subsample size")
     args = parser.parse_args()
     
     if args.device=='cpu' or (not torch.cuda.is_available()):
@@ -301,7 +299,9 @@ if __name__ == '__main__':
     data_Y = data_Y.to(device=device)
     
     # path numerical results
-    path_results = "./numerical_results/mlmc_subsampling/logistic/{}_d{}_m{}".format(args.type_data, args.dim, args.data_size)
+    dim = data_X.shape[1]
+    data_size = data_X.shape[0]
+    path_results = "./numerical_results/mlmc_subsampling/logistic/{}_d{}_m{}".format(args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -326,27 +326,15 @@ if __name__ == '__main__':
     bayesian_logregress.save_convergence_test(os.path.join(path_results, "logistic_level_s_data.txt"))
 
 
-    # 1.b Estimate variance and and N if unbiased estimator unbiased estimato
-    if args.estimate_cost_unbiased:
-        filename = os.path.join(path_results, "estimate_cost_unbiased.txt")
-        with open(filename, "w") as f:
-            f.write("eps,cost\n")
-        Eps = [0.1,0.01,0.001, 0.0001]
-        for eps in Eps:
-            Vl, Ns, cost_MLMC = bayesian_logregress.estimate_V_N_C_unbiased_estimor(eps,levels=5) 
-            with open(filename, "a") as f:
-                f.write("{:2.4e},{2.4e}\n".format(eps, cost_MLMC))
-    else:
-        # 2. get complexities
-        
-        Eps = [0.1, 0.01, 0.001,0.0001]#, 0.0005]
-        Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
-                os.path.join(path_results, "convergence_test_s.txt"))
+    # 2. get complexities
+    Eps = [0.1, 0.01, 0.001,0.0005, 0.0001]#, 0.0005]
+    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
+            os.path.join(path_results, "convergence_test_s.txt"))
 
-        # 3. plot
-        bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 
-                os.path.join(path_results,"logistic_level_s.pdf"))
-        
-        # 4. save
-        bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
-                os.path.join(path_results, "logistic_level_s_data.txt"))
+    # 3. plot
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 
+            os.path.join(path_results,"logistic_level_s.pdf"))
+    
+    # 4. save
+    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
+            os.path.join(path_results, "logistic_level_s_data.txt"))
