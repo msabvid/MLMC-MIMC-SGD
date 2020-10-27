@@ -76,7 +76,7 @@ class SGLD():
         self.data_size = data_X.shape[0]
         
         # we estimate the MAP, and the log-likelihood of the dataset using the MAP
-        self.MAP = self.estimate_MAP(epochs=25000,batch_size=self.data_size) # object of class LogisticNets
+        self.MAP = self.estimate_MAP(epochs=400*args.n_steps,batch_size=self.data_size) # object of class LogisticNets
         self.grad_loglik_MAP = self.get_grad_loglik_MAP() # tensor of size (1, self.dim+1)
 
     def estimate_MAP(self, epochs, batch_size):
@@ -315,7 +315,7 @@ if __name__ == '__main__':
     results = [dict(moment1=sgld_1, moment2=sgld_2, label="$E(F(X))$ - sgld"),
          dict(moment1=sgld_cv_1, moment2=sgld_cv_2, label="$E(F(X))$ - sgld_cv")]
     make_plots(path_results, results)
-    with open(os.path.join(path_results, "results.pickle"), "wb") as f:
+    with open(os.path.join(path_results, "sgld_results.txt"), "wb") as f:
         pickle.dump(results, f)
 
 
