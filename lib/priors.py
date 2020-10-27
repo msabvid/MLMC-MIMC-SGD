@@ -57,8 +57,8 @@ class MixtureGaussians(BasePrior):
     def grad_logprob(self, x):
         grad_logprob = 0
         for mu, diagSigma, mixing in zip(self.mu, self.diagSigma, self.mixing):
-            grad_logprob += mixing * (-1) * (x-self.mu)/self.diagSigma
-        
+            grad_logprob += mixing * (-1) * (x-mu)/diagSigma
+        return grad_logprob
 
 
 
