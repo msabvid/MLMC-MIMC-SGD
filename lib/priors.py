@@ -16,14 +16,19 @@ class Gaussian(BasePrior):
         Parameters
         ----------
         mu: torch.Tensor
-            tensor of size (n)
+            tensor of size (dim)
         Sigma: torch.Tensor
-            tensor of size (n)
+            tensor of size (dim)
         """
         assert diagSigma.dim()==1 , "diagSigma needs to have dimension 1"
 
         self.mu = mu.view(1,-1)
         self.diagSigma = diagSigma.view(1,-1)
+
+    def logprob(self,x):
+        exponent = -0.5 * (x-self.mu)**2/self.diagSigma #(N, dim)
+        exponent = exponent.sum(1) # we don't take into account the constant in fron of the exp, since after taking logs, and differentiating, it disappears. 
+        return exponent # we return log(exp(exponent)) = exponent 
 
     def grad_logprob(self, x):
         return -(x-self.mu)/self.diagSigma
@@ -40,9 +45,9 @@ class MixtureGaussians(BasePrior):
         Parameters
         ----------
         mu: list[orch.Tensor]
-            list of tensor of size (n)
+            list of tensor of size (dim)
         Sigma: list[torch.Tensor]
-            list of tensor of size (n)
+            list of tensor of size (dim)
         mixing: list[float]
             list of floats
         """
@@ -54,11 +59,13 @@ class MixtureGaussians(BasePrior):
         self.diagSigma = [d.view(1,-1) for d in diagSigma]
         self.mixing = mixing
 
-    def grad_logprob(self, x):
-        grad_logprob = 0
+    def logprob(self, x):
+        prob = 0
         for mu, diagSigma, mixing in zip(self.mu, self.diagSigma, self.mixing):
-            grad_logprob += mixing * (-1) * (x-mu)/diagSigma
-        return grad_logprob
+            exponent = -0.5 * (x-mu)**2/diagSigma # (N, dim)
+            exponent = exponent.sum(1) # (N)
+            prob += mixing * 1/torch.sqrt(torch.prod(diagSigma))*torch.exp(exponent) # torch.prod(diagSigma) := det(diagSigma)
+        return torch.log(prob)
 
 
 
