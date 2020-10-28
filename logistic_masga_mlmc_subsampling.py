@@ -12,61 +12,15 @@ from sklearn.datasets import make_blobs
 
 from mlmc_mimc import MLMC 
 from lib.data import get_dataset
+from lib.priors import Gaussian, MixtureGaussians
+from lib.models import LogisticNets
+from lib.hyperparameters import config_priors
 
 
-
-
-class LogisticNets(nn.Module):
-    """
-    List of logistic regressions
-    """
-    
-    def __init__(self, dim, N):
-        """List of logistic networks. 
-        We aim to sample from the  posterior of the parameters of the logistic network
-        by solving the Langevin sde process
-
-        Parameters
-        ----------
-        dim : int
-            Dimension of input data
-        N : int
-            Number of copies of the logistic regression necessary for Monte Carlo
-
-        """
-        
-        super().__init__()
-        self.params = nn.Parameter(torch.zeros(N, dim+1))
-        self.activation = nn.Sigmoid()
-        #self.nets = nn.ModuleList([LogisticNet(dim) for n in range(N)])
-
-
-    def forward(self, idx, data_X):
-        y = torch.matmul(data_X, self.params[idx, :].view(-1,1))
-        y = nn.Sigmoid()(y)
-        return y
-    
-    
-    def forward_backward_pass(self, data_X, data_Y, U):
-        loss_fn = nn.BCELoss(reduction='none')
-        x = data_X[U,:] # x has shape (N, subsample_size, (dim+1))
-        target = data_Y[U,:]
-        
-        y = torch.bmm(x,self.params.unsqueeze(2)) #(N, subsample_size, 1)
-        y = self.activation(y)
-        
-        loss = -loss_fn(y,target).squeeze(2) #!!! I put a minus so that it is the loglikelihood. Important for the signs in the Langevin process
-        loss = loss.sum(1)
-
-        loss.backward(torch.ones_like(loss))
-        return 0 
-
-
-        
 
 class Bayesian_logistic(MLMC):
 
-    def __init__(self, Lmin, Lmax, N0, M, T, s0, n0, data_X, data_Y, device):
+    def __init__(self, Lmin, Lmax, N0, M, T, s0, n0, data_X, data_Y, prior, device):
         super().__init__(Lmin, Lmax, N0)
         self.data_X = data_X
         self.data_Y = data_Y
@@ -77,6 +31,7 @@ class Bayesian_logistic(MLMC):
         self.n0 = n0 # number of timesteps at level 0
         self.device=device
         self.data_size = self.data_X.shape[0]
+        self.prior = prior
 
     @staticmethod
     def init_weights(net, mu=0, std=1):
@@ -86,18 +41,8 @@ class Bayesian_logistic(MLMC):
         #net.params.data.copy_(mu + std * torch.randn_like(net.params))
         net.params.data.copy_(torch.zeros_like(net.params))
 
-    def _grad_logprior(self, x):
-        """
-        Prior is d-dimensional N(0,1)
-        f(x) = 1/sqrt(2pi) * exp(-x^2/2)
-        log f(x) = Const - x^2/2
-        d/dx log(f(x)) = -x
-        """
-        return -x
 
-
-
-    def _euler_step(self, nets, U, sigma, h, dW):
+    def euler_step(self, nets, U, sigma, h, dW):
         """Perform a step of Euler scheme in-place on the parameters of nets
 
         Parameters
@@ -116,7 +61,7 @@ class Bayesian_logistic(MLMC):
         nets.zero_grad()
         nets.forward_backward_pass(self.data_X, self.data_Y, U)
         subsample_size = U.shape[1]
-        nets.params.data.copy_(nets.params.data + h/2*(1/self.data_size*self._grad_logprior(nets.params.data) + 1/subsample_size * nets.params.grad) + \
+        nets.params.data.copy_(nets.params.data + h/2*(1/self.data_size*self.prior.grad_logprob(nets.params.data) + 1/subsample_size * nets.params.grad) + \
                 sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
@@ -170,11 +115,11 @@ class Bayesian_logistic(MLMC):
             for n in range(int(nf)):
                 dW = math.sqrt(hf) * torch.randn_like(dW)
                 U = np.random.choice(self.data_size, (N2,sf), replace=True)
-                self._euler_step(X_f, U, sigma_f, hf, dW)
+                self.euler_step(X_f, U, sigma_f, hf, dW)
                 
                 if l>0:
-                    self._euler_step(X_c1, U[:,:sc], sigma_f, hf, dW)
-                    self._euler_step(X_c2, U[:,sc:], sigma_f, hf, dW)
+                    self.euler_step(X_c1, U[:,:sc], sigma_f, hf, dW)
+                    self.euler_step(X_c2, U[:,sc:], sigma_f, hf, dW)
 
             F_fine = self.Func(X_f)
             F_coarse_antithetic = 0.5 * (self.Func(X_c1)+self.Func(X_c2)) if l>0 else 0
@@ -283,6 +228,8 @@ if __name__ == '__main__':
     parser.add_argument('--n_steps', type=int, default=10000, help='number of steps in time discretisation')
     parser.add_argument('--seed', type=int, default=1, help='seed')
     parser.add_argument('--type_data', type=str, default="synthetic", help="type of data")
+    parser.add_argument('--prior', type=str, default="Gaussian", help="type of prior")
+    
     args = parser.parse_args()
     
     if args.device=='cpu' or (not torch.cuda.is_available()):
@@ -290,7 +237,7 @@ if __name__ == '__main__':
     else:
         device = 'cuda:'+str(args.device)
     
-
+    
     # Target Logistic regression, and synthetic data
     data_X, data_Y = get_dataset(m=args.data_size, d=args.dim,
         type_regression="logistic", type_data=args.type_data, data_dir="./data/")
@@ -305,6 +252,11 @@ if __name__ == '__main__':
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
+    # prior configuration
+    PRIORS = {"Gaussian":Gaussian, "MixtureGaussians":MixtureGaussians}
+    CONFIG_PRIORS = config_priors(dim, device)
+    prior = PRIORS[args.prior](**CONFIG_PRIORS[args.prior])
+    
     MLMC_CONFIG = {'Lmin':args.Lmin,
             'Lmax':args.Lmax,
             'N0':args.N0,
@@ -315,6 +267,7 @@ if __name__ == '__main__':
             'data_X':data_X,
             'data_Y':data_Y,
             'device':device,
+            'prior':prior
             }
     
     # Bayesian log regressor
@@ -327,7 +280,7 @@ if __name__ == '__main__':
 
 
     # 2. get complexities
-    Eps = [0.1, 0.01, 0.001,0.0005, 0.0001]#, 0.0005]
+    Eps = [0.01, 0.001,0.0005, 0.0001]#, 0.0005]
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
             os.path.join(path_results, "convergence_test_s.txt"))
 
@@ -337,4 +290,4 @@ if __name__ == '__main__':
     
     # 4. save
     bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
-            os.path.join(path_results, "logistic_level_s_data.txt"))
+            os.path.join(path_results, "masga_results.txt"))

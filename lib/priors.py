@@ -3,7 +3,7 @@ from typing import List
 
 class BasePrior():
 
-    def grad_logsample(self, x):
+    def grad_logprob(self, x):
         raise NotImplementedError()
 
 
