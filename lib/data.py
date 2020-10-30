@@ -32,9 +32,24 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
         data_x = torch.tensor(scaler.fit_transform(X_train), dtype=torch.float32)
         Y_train[Y_train>1] = 0
         data_y = torch.tensor(Y_train,dtype=torch.float32).reshape(-1,1)
-        
         data = dict(x=data_x,y=data_y)
         filename = "data_logistic_covtype.pth.tar".format(d)
+        torch.save(data, os.path.join(data_dir, filename))
+    elif type_regression=='MixtureGaussians':
+        theta1, theta2 = 0, 1
+        sigma_x = np.sqrt(2)
+        u = np.random.rand(m)
+        z1 = np.random.randn(m)
+        z2 = np.random.randn(m)
+        x1, x2 = np.zeros_like(u), np.zeros_like(u)
+        x1[np.where(u<=0.5)] = theta1 + sigma_x * z1[np.where(u<=0.5)]
+        x2[np.where(u<=0.5)] = theta1 + sigma_x * z2[np.where(u<=0.5)]
+        x1[np.where(u>0.5)] = theta1 + theta2 + sigma_x * z1[np.where(u>0.5)]
+        x2[np.where(u>0.5)] = theta1 + theta2 + sigma_x * z2[np.where(u>0.5)]
+        data_x = np.stack([x1,x2], axis=1)
+        data_y = None
+        data = dict(x=torch.tensor(data_x, dtype=torch.float32),y=data_y)
+        filename = "data_MixtureGaussians_synthetic_d{}_m{}.pth.tar".format(d,m)
         torch.save(data, os.path.join(data_dir, filename))
     else:
         raise ValueError("Unknown regression {}".format(type_regression))
@@ -47,9 +62,8 @@ def get_dataset(m: int, d: int, type_regression: str, type_data: str,  data_dir:
 
     if type_data == "synthetic":
         filename = os.path.join(data_dir,"data_{}_{}_d{}_m{}.pth.tar".format(type_regression, type_data,d, m))
-    else:
+    elif type_data=="covtype":
         filename = os.path.join(data_dir,"data_{}_{}.pth.tar".format(type_regression, type_data,d, m))
-
     if not os.path.exists(filename):
         create_dataset(m=m,d=d,data_dir=data_dir, type_regression=type_regression, type_data=type_data)
     data = torch.load(filename)

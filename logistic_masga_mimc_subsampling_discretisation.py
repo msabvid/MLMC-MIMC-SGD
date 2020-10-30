@@ -62,11 +62,10 @@ class Bayesian_logistic(MIMC):
             Brownian motion
         """
         nets.zero_grad()
-        nets.forward_backward_pass(self.data_X, self.data_Y, U)
         subsample_size = U.shape[1]
-        
-        nets.params.data.copy_(nets.params.data + h/2*(1/self.data_size * self.prior.grad_logprob(nets.params.data) + 1/subsample_size * nets.params.grad) + \
-                sigma * dW)
+        drift_langevin = 1/self.data_size * self.prior.logprob(nets.params) + 1/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
+        drift_langevin.backward(torch.ones_like(drift_langevin))
+        nets.params.data.copy_(nets.params.data + h/2*(nets.params.grad) + sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError
         return 0

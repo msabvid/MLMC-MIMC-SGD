@@ -14,59 +14,15 @@ import tqdm
 import matplotlib.pyplot as plt
 import pickle
 
-from mlmc_mimc import MLMC 
 from lib.data import get_dataset, Dataset_MCMC
-
-
-
-
-class LogisticNets(nn.Module):
-    """
-    List of logistic regressions
-    """
-    
-    def __init__(self, dim, N):
-        """List of logistic networks. 
-        We aim to sample from the  posterior of the parameters of the logistic network
-        by solving the Langevin sde process
-        We will solve N Langevin processes in parallel to estimate moments
-
-        Parameters
-        ----------
-        dim : int
-            Dimension of input data
-        N : int
-            Number of copies of the logistic regression necessary for Monte Carlo
-
-        """
-        super().__init__()
-        self.params = nn.Parameter(torch.zeros(N, dim+1)) # +1 is for the intercept
-
-
-    def forward(self, data_X, idx=0):
-        y = torch.matmul(data_X, self.params[idx, :].view(-1,1))
-        y = torch.sigmoid(y)
-        return y
-    
-    
-    def forward_backward_pass(self, data_X, data_Y, U):
-        loss_fn = nn.BCELoss(reduction='none')
-        x = data_X[U,:] # x has shape (N, subsample_size, (dim+1))
-        target = data_Y[U,:]
-        
-        y = torch.bmm(x,self.params.unsqueeze(2)) # (N, subsample_size, 1)
-        y = torch.sigmoid(y)
-        
-        loss = -loss_fn(y,target).squeeze(2) #!!! I put a minus in front of loss_fn so that we actually compute the log-likelihood! Important for the signs in the Langevin process
-        loss = loss.sum(1)
-        loss.backward(torch.ones_like(loss))
-        return 0 
-
+from lib.priors import Gaussian, MixtureGaussians
+from lib.models import LogisticNets
+from lib.hyperparameters import config_priors
 
 
 class SGLD():
 
-    def __init__(self, T, n_steps, data_X, data_Y, device):
+    def __init__(self, T, n_steps, data_X, data_Y, prior, device):
         self.data_X = data_X
         self.data_Y = data_Y
         self.dim = data_X.shape[1]-1 # -1 is to subtract column of 1s in the data to account for the intercept
@@ -74,6 +30,7 @@ class SGLD():
         self.n_steps = n_steps
         self.device = device
         self.data_size = data_X.shape[0]
+        self.prior = prior
         
         # we estimate the MAP, and the log-likelihood of the dataset using the MAP
         self.MAP = self.estimate_MAP(epochs=400*args.n_steps,batch_size=self.data_size) # object of class LogisticNets
@@ -121,17 +78,6 @@ class SGLD():
         net.params.data.copy_(mu + std * torch.randn_like(net.params))
         #net.params.data.copy_(torch.zeros_like(net.params))
     
-    def grad_logprior(self,x):
-        """
-        Prior is d-dimensional N(0,1) with diagonal covariance matrix
-        f(x) = 1/sqrt(2pi) * exp(-x^2/2)
-        log f(x) = Const - x^2/2
-        d/dx log(f(x)) = -x
-
-        TO BE CHANGED if the prior is changed
-        """
-        return -x
-
     def Func(self, nets):
         """Function of X. 
         Recall we want to approximate E(F(X)) where X is a random vector
@@ -172,7 +118,7 @@ class SGLD():
                 U = np.random.choice(self.data_size, (N2, sf), replace=True)
                 X.zero_grad()
                 X.forward_backward_pass(self.data_X, self.data_Y, U)
-                params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
+                params_updated = X.params.data + hf/2 * (1/self.data_size*self.prior.grad_logprob(X.params.data) +
                         1/sf * X.params.grad) + sigma*dW
                 X.params.data.copy_(params_updated)
                 sum1[step] += np.sum(self.Func(X))
@@ -214,7 +160,7 @@ class SGLD():
                 MAP.zero_grad()
                 X.forward_backward_pass(self.data_X, self.data_Y, U)
                 MAP.forward_backward_pass(self.data_X, self.data_Y, U)
-                params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
+                params_updated = X.params.data + hf/2 * (1/self.data_size*self.prior.grad_logprob(X.params.data) +
                         1/self.data_size*grad_loglik_MAP + 1/sf*(X.params.grad - MAP.params.grad)) + sigma*dW
                 X.params.data.copy_(params_updated)
 
@@ -275,6 +221,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_steps', type=int, default=10000, help='number of steps in time discretisation')
     parser.add_argument('--seed', type=int, default=1, help='seed')
     parser.add_argument('--type_data', type=str, default="synthetic")
+    parser.add_argument('--prior', type=str, default="Gaussian", help="type of prior")
     args = parser.parse_args()
     
     if args.device=='cpu' or (not torch.cuda.is_available()):
@@ -297,12 +244,18 @@ if __name__ == '__main__':
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
+    # prior configuration
+    PRIORS = {"Gaussian":Gaussian, "MixtureGaussians":MixtureGaussians}
+    CONFIG_PRIORS = config_priors(dim, device)
+    prior = PRIORS[args.prior](**CONFIG_PRIORS[args.prior])
+    
     # SGLD object
     set_seed(args.seed)
     sgld = SGLD(T=args.T, 
             n_steps=args.n_steps,
             data_X=data_X,
             data_Y=data_Y,
+            prior=prior,
             device=device)
     
     # 1. We calculate E(F(X)) and E(F(X)**2) for stochastic Langevin process

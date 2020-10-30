@@ -13,12 +13,12 @@ from sklearn.datasets import make_blobs
 from mlmc_mimc import MLMC 
 from lib.data import get_dataset
 from lib.priors import Gaussian, MixtureGaussians
-from lib.models import LogisticNets
+from lib.models import MixtureGaussianNets
 from lib.hyperparameters import config_priors
 
 
 
-class Bayesian_logistic(MLMC):
+class Bayesian_Inference(MLMC):
 
     def __init__(self, Lmin, Lmax, N0, M, T, s0, n0, data_X, data_Y, prior, device):
         super().__init__(Lmin, Lmax, N0)
@@ -47,7 +47,7 @@ class Bayesian_logistic(MLMC):
 
         Parameters
         ----------
-        nets : LogisticNets
+        nets : MixtureGaussianNets
             logistics networks. The parameters of each logistic network participate in the SDE
         U : np.ndarray
             random indexes of data for subsampling
@@ -60,7 +60,7 @@ class Bayesian_logistic(MLMC):
         """
         nets.zero_grad()
         subsample_size = U.shape[1]
-        drift_langevin = 1/self.data_size * self.prior.logprob(nets.params) + 1/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
+        drift_langevin = 1/self.data_size * self.prior.logprob(nets.params) + 1/subsample_size * nets.loglik(self.data_X, U)
         drift_langevin.backward(torch.ones_like(drift_langevin))
         nets.params.data.copy_(nets.params.data + h/2*(nets.params.grad) + sigma * dW)
         if torch.isnan(nets.params.mean()):
@@ -75,7 +75,7 @@ class Bayesian_logistic(MLMC):
         
         Parameters
         ----------
-        nets : LogisticNets 
+        nets : MixtureGaussianNets 
 
         """
         with torch.no_grad():
@@ -90,7 +90,7 @@ class Bayesian_logistic(MLMC):
         We fix sampling parameter. We do antithetic approach on Brownian motion
 
         """
-        dim = self.data_X.shape[1]-1
+        dim = self.data_X.shape[1]#-1 # we don't have an intercept in this model
         
         nf = self.n0 # n steps discretisation level
         hf = self.T/nf # step size in discretisation level
@@ -104,7 +104,7 @@ class Bayesian_logistic(MLMC):
         for N1 in range(0, N, 1000):
             N2 = min(1000, N-N1) # we will do batches of paths of size N2
             
-            X_f = LogisticNets(dim, N2).to(device=self.device)
+            X_f = MixtureGaussianNets(dim, N2, sigma_x=math.sqrt(2)).to(device=self.device)
             self.init_weights(X_f)
 
             X_c1 = copy.deepcopy(X_f) # 1st coarse process for antithetics
@@ -220,7 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--s0', type=int, default=256, help='initial value of data batch size')
     parser.add_argument('--N0', type=int, default=2, help='initial number of samples for MLMC algorithm')
     parser.add_argument('--Lmin', type=int, default=0, help='minimum refinement level')
-    parser.add_argument('--Lmax', type=int, default=8, help='maximum refinement level')
+    parser.add_argument('--Lmax', type=int, default=10, help='maximum refinement level')
     parser.add_argument('--device', default='cpu', help='device')
     parser.add_argument('--dim', type=int, default=2, help='dimension of data if type_data==synthetic')
     parser.add_argument('--data_size', type=int, default=512, help="data_size if type_data==synthetic")
@@ -240,15 +240,18 @@ if __name__ == '__main__':
     
     # Target Logistic regression, and synthetic data
     data_X, data_Y = get_dataset(m=args.data_size, d=args.dim,
-        type_regression="logistic", type_data=args.type_data, data_dir="./data/")
+        type_regression="MixtureGaussians", type_data=args.type_data, data_dir="./data/")
 
     data_X = data_X.to(device=device)
-    data_Y = data_Y.to(device=device)
+    try:
+        data_Y = data_Y.to(device=device)
+    except:
+        pass
     
     # path numerical results
     dim = data_X.shape[1]
     data_size = data_X.shape[0]
-    path_results = "./numerical_results/mlmc_subsampling/logistic/{}_d{}_m{}".format(args.type_data, dim, data_size)
+    path_results = "./numerical_results/mlmc_subsampling/mixture/{}_d{}_m{}".format(args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -256,6 +259,8 @@ if __name__ == '__main__':
     PRIORS = {"Gaussian":Gaussian, "MixtureGaussians":MixtureGaussians}
     CONFIG_PRIORS = config_priors(dim, device)
     prior = PRIORS[args.prior](**CONFIG_PRIORS[args.prior])
+
+    # likelihood configuration
     
     MLMC_CONFIG = {'Lmin':args.Lmin,
             'Lmax':args.Lmax,
@@ -271,23 +276,23 @@ if __name__ == '__main__':
             }
     
     # Bayesian log regressor
-    bayesian_logregress = Bayesian_logistic(**MLMC_CONFIG)
+    bayesian_mixture = Bayesian_Inference(**MLMC_CONFIG)
     
     # 1.a Convergence tests
-    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, 
+    bayesian_mixture.estimate_alpha_beta_gamma(args.L, args.N, 
             os.path.join(path_results,"log.txt"))
-    #bayesian_logregress.save_convergence_test(os.path.join(path_results, "logistic_level_s_data.txt"))
+    #bayesian_logregress.save_convergence_test(os.path.join(path_results, "{}_level_s_data.txt".format()))
 
 
     # 2. get complexities
-    Eps = [0.01, 0.001,0.0005, 0.0001]#, 0.0005]
-    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
+    Eps = [0.01,0.001,0.0005,0.0001]#,0.00005]#[0.01, 0.001,0.0005, 0.0001]#, 0.0005]
+    Nl_list, mlmc_cost, std_cost = bayesian_mixture.get_complexities(Eps, 
             os.path.join(path_results, "log.txt"))
 
     # 3. plot
-    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 
+    bayesian_mixture.plot(Eps, Nl_list, mlmc_cost, std_cost, 
             os.path.join(path_results,"masga_plots.pdf"))
     
     # 4. save
-    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
+    bayesian_mixture.save(Eps, Nl_list, mlmc_cost, std_cost, 
             os.path.join(path_results, "masga_results.pickle"))

@@ -44,12 +44,12 @@ class MixtureGaussians(BasePrior):
         """
         Parameters
         ----------
-        mu: list[orch.Tensor]
-            list of tensor of size (dim)
+        mu: list[torch.Tensor]
+            list of means of Gaussians of size (dim)
         Sigma: list[torch.Tensor]
-            list of tensor of size (dim)
+            list of covariance matrices of Gaussians of size (dim) <-- I am assuming diagonal covariance matrices
         mixing: list[float]
-            list of floats
+            mixing coefficients of Gaussian mixture
         """
         assert sum(mixing)==1, "mixing coefficients must sum 1"
         assert len(mu)==len(diagSigma)
@@ -60,6 +60,10 @@ class MixtureGaussians(BasePrior):
         self.mixing = mixing
 
     def logprob(self, x):
+        """
+        x: torch.Tensor
+            Parameters of models. Tensor of shape (N, dim), with N number of models/processes
+        """
         prob = 0
         for mu, diagSigma, mixing in zip(self.mu, self.diagSigma, self.mixing):
             exponent = -0.5 * (x-mu)**2/diagSigma # (N, dim)
