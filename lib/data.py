@@ -4,6 +4,24 @@ import os
 from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+import requests
+import gzip
+import tqdm
+
+
+def download_covtype(data_dir):
+    url = "https://archive.ics.uci.edu/ml/machine-learning-databases/covtype/covtype.data.gz"
+    r = requests.get(url)
+    with open(os.path.join(data_dir, "covtype.gz"), "wb") as f:
+        print("downloading the data")
+        f.write(r.content)
+    with gzip.open(os.path.join(data_dir, "covtype.gz"), "rb") as f:
+        content = f.read()
+    with open(os.path.join(data_dir, "covtype.txt"), "w") as f:
+        f.write(content.decode())
+
+
+
 
 
 def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", type_data="synthetic", seed=1):
@@ -24,7 +42,10 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
         filename = "data_logistic_synthetic_d{}_m{}.pth.tar".format(d,m)
         torch.save(data, os.path.join(data_dir, filename))
     elif type_data=="covtype":
-        data = np.loadtxt(os.path.join(data_dir, "covtype.txt"), delimiter=",")
+        if os.path.exists(os.path.join(data_dir, "covtype.txt"), delimiter=","):
+            data = np.loadtxt(os.path.join(data_dir, "covtype.txt"), delimiter=",")
+        else:
+            download_covtype(data_dir)
         data_x = data[:,:-1]
         data_y = data[:,-1]
         X_train, _, Y_train, _ = train_test_split(data_x, data_y, train_size=0.2)
