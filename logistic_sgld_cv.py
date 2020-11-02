@@ -49,13 +49,15 @@ class SGLD():
         sf=self.data_size
         for step in range(epochs):
             #U = np.random.choice(self.data_size, (1, sf), replace=True)
-            U = np.arange(self.data_size).reshape(1,sf)
+            U = np.arange(self.data_size).reshape(1,batch_size)
             X.zero_grad()
-            X.forward_backward_pass(self.data_X, self.data_Y, U)
-            
-            params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
-                    1/sf*X.params.grad) 
-            X.params.data.copy_(params_updated)
+            drift = 1/self.data_size * self.prior.logprob(X.params) + 1/batch_size * X.loglik(self.data_X, self.data_Y, U)
+            drift.backward(torch.ones_like(drift))
+            X.params.data.copy_(X.params.data + hf/2*(X.params.grad))
+            #X.forward_backward_pass(self.data_X, self.data_Y, U)
+            #params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
+            #        1/sf*X.params.grad) 
+            #X.params.data.copy_(params_updated)
             pbar.update(1)
         return X
 
@@ -66,7 +68,6 @@ class SGLD():
         pred = self.MAP(self.data_X.to(self.device))
         loss = -loss_fn(pred, self.data_Y.to(self.device)) #!!! I put a minus in front of loss_fn so that we actually compute the log-likelihood! Important for the signs in the Langevin process
         loss.backward()
-        
         grad_loglik_MAP = copy.deepcopy(self.MAP.params.grad)
         return grad_loglik_MAP
 
@@ -117,12 +118,15 @@ class SGLD():
                 dW = math.sqrt(hf) * torch.randn_like(X.params)
                 U = np.random.choice(self.data_size, (N2, sf), replace=True)
                 X.zero_grad()
-                X.forward_backward_pass(self.data_X, self.data_Y, U)
-                params_updated = X.params.data + hf/2 * (1/self.data_size*self.prior.grad_logprob(X.params.data) +
-                        1/sf * X.params.grad) + sigma*dW
-                X.params.data.copy_(params_updated)
-                sum1[step] += np.sum(self.Func(X))
-                sum2[step] += np.sum(self.Func(X)**2)
+                drift_langevin = 1/self.data_size*self.prior.logprob(X.params) + 1/sf * X.loglik(self.data_X, self.data_Y,U)
+                drift_langevin.backward(torch.ones_like(drift_langevin))
+                X.params.data.copy_(X.params.data + hf/2*(X.params.grad) + sigma*dW)
+                #X.forward_backward_pass(self.data_X, self.data_Y, U)
+                #params_updated = X.params.data + hf/2 * (1/self.data_size*self.prior.grad_logprob(X.params.data) +
+                #        1/sf * X.params.grad) + sigma*dW
+                #X.params.data.copy_(params_updated)
+                sum1[step] += np.sum(self.Func(X)) # first moment
+                sum2[step] += np.sum(self.Func(X)**2) # second moment
             pbar.update(N2)
         
         return sum1/N, sum2/N
@@ -256,7 +260,8 @@ if __name__ == '__main__':
             data_X=data_X,
             data_Y=data_Y,
             prior=prior,
-            device=device)
+            device=device,
+            prior=prior)
     
     # 1. We calculate E(F(X)) and E(F(X)**2) for stochastic Langevin process
     sgld_1, sgld_2 = sgld.solve(N=args.N, sf=args.subsample_size)
