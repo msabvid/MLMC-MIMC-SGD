@@ -44,6 +44,9 @@ class MLMC(ABC):
         self.avg_Pf = None
         self.var_Pf_Pc = None
         self.var_Pf = None
+        self.N_samples_convergence = None
+
+        self.target = None
 
     def _mlmc(self,eps):
         """Multi-level Monte Carlo estimation achieving 
@@ -99,8 +102,16 @@ class MLMC(ABC):
             # compute the absolute average and variance **at each level**, necessary to calculate additional samples
             ml = np.abs(suml[0,:]/Nl)
             Vl = np.maximum(0, suml[1,:]/Nl - ml**2)
-            
-            
+            if self.N_samples_convergence:
+                for idx, _ in enumerate(Nl):
+                    if Nl[idx]<self.N_samples_convergence and idx>1:
+                        Vl[idx] = Vl[idx-1]/2.0**beta
+                    elif Nl[idx]<self.N_samples_convergence and idx==1:
+                        Vl[idx] = self.var_Pf_Pc[1]
+                    elif Nl[idx]<self.N_samples_convergence and idx==0:
+                        Vl[idx] = self.var_Pf[0]
+                    else:
+                        pass
             # set optimal number of additional samples (dNl) in order to minimise total cost for a fixed variance
             Cl = np.arange(L+1)
             for idx, nl in enumerate(Cl):
@@ -117,12 +128,21 @@ class MLMC(ABC):
                 
                 #P = sum(suml[0,:]/Nl)
                 #if self.get_weak_error_from_target(P) > np.sqrt(1/2) * eps:
-                if self.get_weak_error(ml) > np.sqrt(1/2) * eps:
+                if L==0 and self.target is not None:
+                    weak_error = abs(sum(suml[0,:]/Nl)-self.target)
+                else:
+                    weak_error = self.get_weak_error(ml)
+                    
+                #if self.get_weak_error(ml) > np.sqrt(1/2) * eps:
+                if weak_error > np.sqrt(1/2) * eps:
                     if L == self.Lmax:
                         raise WeakConvergenceFailure("Failed to achieve weak convergence")
                     else:
                         L = L+1
-                        Vl = np.append(Vl, Vl[-1] / 2.0**beta) # MLMC theorem, variance is O(2^{-beta})
+                        if L>1:
+                            Vl = np.append(Vl, Vl[-1] / 2.0**beta) # MLMC theorem, variance is O(2^{-beta})
+                        else:
+                            Vl = np.append(Vl, self.var_Pf_Pc[1])
                         Nl = np.append(Nl, 0.0)
                         suml = np.column_stack([suml, [0,0]])
                         
