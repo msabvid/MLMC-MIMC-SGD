@@ -32,6 +32,6 @@ python logistic_masga_mlmc_subsampling.py --prior Gaussian --T 5 --n_steps 100 -
 ```
 - Bayesian logistic regression with Mixture of two Gaussians as the prior on a synthetic dataset:
 ```
-python logistic_masga_mlmc_subsampling.py --prior MixtureGaussians --T 5 --n_steps 100 --device 1 --s0 32 --type_data synthetic --Lmin 0 --N 10000
+python logistic_masga_mlmc_subsampling.py --prior MixtureGaussians --T 5 --n_steps 100 --device 1 --s0 2 --dim 2 --data_size 512 --type_data synthetic --Lmin 0 --N 10000
 ```
 
