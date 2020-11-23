@@ -33,14 +33,15 @@ class SGLD():
         self.prior = prior
         
         # we estimate the MAP, and the log-likelihood of the dataset using the MAP
-        self.MAP = self.estimate_MAP(epochs=400*args.n_steps,batch_size=self.data_size) # object of class LogisticNets
+        self.MAP = self.estimate_MAP(epochs=args.n_steps,batch_size=self.data_size) # object of class LogisticNets
         self.grad_loglik_MAP = self.get_grad_loglik_MAP() # tensor of size (1, self.dim+1)
 
     def estimate_MAP(self, epochs, batch_size):
         """
         We estimate the MAP using usual SGD with RMSprop
         """
-        hf = self.T/self.n_steps
+        hf = min(self.T/self.n_steps, 0.0001)
+        epochs = max(epochs, 200000)
         print("estimating MAP for control variate")
         pbar = tqdm.tqdm(total=epochs)
         X = LogisticNets(self.dim, N=1).to(device=self.device)
@@ -76,8 +77,8 @@ class SGLD():
         """ Init weights with prior
 
         """
-        net.params.data.copy_(mu + std * torch.randn_like(net.params))
-        #net.params.data.copy_(torch.zeros_like(net.params))
+        #net.params.data.copy_(mu + std * torch.randn_like(net.params))
+        net.params.data.copy_(torch.zeros_like(net.params))
     
     def Func(self, nets):
         """Function of X. 
@@ -216,9 +217,9 @@ if __name__ == '__main__':
     
     #CONFIGURATION
     parser = argparse.ArgumentParser()
-    parser.add_argument('--N', type=int, default=5000, help='number samples from posterior to calculate E(F(X))')
+    parser.add_argument('--N', type=int, default=10000, help='number samples from posterior to calculate E(F(X))')
     parser.add_argument('--device', default='cpu', help='device')
-    parser.add_argument('--dim', type=int, default=2, help='dimension of data if data is synthetic')
+    parser.add_argument('--dim',  type=int, default=2, help='dimension of data if data is synthetic')
     parser.add_argument('--data_size', type=int, default=512, help="dataset size is data is synthetic")
     parser.add_argument('--subsample_size', type=int, default=32, help="subsample size")
     parser.add_argument('--T', type=int, default=10, help='horizon time')
@@ -244,7 +245,7 @@ if __name__ == '__main__':
     # path numerical results
     dim = data_X.shape[1]
     data_size = data_X.shape[0]
-    path_results = "./numerical_results/sgld_cv/logistic/{}_d{}_m{}".format(args.type_data, dim, data_size)
+    path_results = "./numerical_results/sgld_cv/logistic/{}_d{}_m{}_s{}".format(args.type_data, dim, data_size, args.subsample_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -259,7 +260,6 @@ if __name__ == '__main__':
             n_steps=args.n_steps,
             data_X=data_X,
             data_Y=data_Y,
-            prior=prior,
             device=device,
             prior=prior)
     
@@ -273,7 +273,7 @@ if __name__ == '__main__':
     results = [dict(moment1=sgld_1, moment2=sgld_2, label="$E(F(X))$ - sgld"),
          dict(moment1=sgld_cv_1, moment2=sgld_cv_2, label="$E(F(X))$ - sgld_cv")]
     make_plots(path_results, results)
-    with open(os.path.join(path_results, "sgld_results.txt"), "wb") as f:
+    with open(os.path.join(path_results, "sgld_results.pickle"), "wb") as f:
         pickle.dump(results, f)
 
 

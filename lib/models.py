@@ -137,11 +137,12 @@ class MixtureGaussianNets(nn.Module):
         mean2 = self.params[:,0].reshape(-1,1,1) + self.params[:,1].reshape(-1,1,1) #shape (N,1,1)
         
         likelihood = 0.5*torch.exp(-1/(2*self.sigma_x**2)*(x-mean1)**2) + 0.5*torch.exp(-1/(2*self.sigma_x**2)*(x-mean2)**2) # (N, subsample_size, dim)
-        logL = torch.log(likelihood) # (N, subsample_size, dim)
         # we suppose data_X_i \sim 1/2 N(X_1, \sigma_x^2) + 1/2 N(X_1 + X_2, \sigma_x^2) are independent for each covariate
-        # Therefore, the join prob is the product of the prob of the marginals, and when we take log, we get a sum across dim
+        # Therefore, the join prob is the product of the prob of the marginals
+        likelihood = likelihood.prod(2) # (N, subsample_size)
+        logL = torch.log(likelihood) # (N, subsample_size)
         # we sum across subsample 
-        logL = logL.sum((1,2)) #(N) 
+        logL = logL.sum(1) #(N) 
         return logL
 
 

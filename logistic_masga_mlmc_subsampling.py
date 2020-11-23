@@ -9,6 +9,7 @@ import argparse
 import numpy as np
 import math
 from sklearn.datasets import make_blobs
+import pickle
 
 from mlmc_mimc import MLMC 
 from lib.data import get_dataset
@@ -40,6 +41,7 @@ class Bayesian_logistic(MLMC):
         """
         #net.params.data.copy_(mu + std * torch.randn_like(net.params))
         net.params.data.copy_(torch.zeros_like(net.params))
+        #net.params.data.copy_(torch.ones_like(net.params)*0.5)
 
 
     def euler_step(self, nets, U, sigma, h, dW):
@@ -161,9 +163,9 @@ class Bayesian_logistic(MLMC):
         """
         
         L = len(Nl)
-        CL = self.n0 *  (1 + self.s0 * self.M ** L)
-        cost = 2/eps**2 * self.var_Pf[min(L, len(self.var_Pf)-1)] * CL
-                
+        CL = self.n0 *  (1 + self.s0 * self.M ** (L-1))
+        #cost = np.ceil(2/eps**2 * self.var_Pf[min(L-1, len(self.var_Pf)-1)]) * CL
+        cost = np.ceil(2/eps**2 * self.var_Pf[0]) * CL
         return cost
     
     def get_cost_MLMC(self, eps, Nl):
@@ -209,6 +211,9 @@ class Bayesian_logistic(MLMC):
         return weak_error
         
 
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 if __name__ == '__main__':
     
@@ -227,8 +232,8 @@ if __name__ == '__main__':
     parser.add_argument('--T', type=int, default=10, help='horizon time')
     parser.add_argument('--n_steps', type=int, default=10000, help='number of steps in time discretisation')
     parser.add_argument('--seed', type=int, default=1, help='seed')
-    parser.add_argument('--type_data', type=str, default="synthetic", help="type of data")
-    parser.add_argument('--prior', type=str, default="Gaussian", help="type of prior")
+    parser.add_argument('--type_data', type=str, default="synthetic", help="type of data", choices=["synthetic", "covtype"])
+    parser.add_argument('--prior', type=str, default="Gaussian", help="type of prior", choices=["Gaussian", "MixtureGaussians"])
     
     args = parser.parse_args()
     
@@ -248,7 +253,7 @@ if __name__ == '__main__':
     # path numerical results
     dim = data_X.shape[1]
     data_size = data_X.shape[0]
-    path_results = "./numerical_results/mlmc_subsampling/logistic/{}_d{}_m{}".format(args.type_data, dim, data_size)
+    path_results = "./numerical_results/mlmc_subsampling/logistic/prior_{}/{}_d{}_m{}".format(args.prior, args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -257,6 +262,7 @@ if __name__ == '__main__':
     CONFIG_PRIORS = config_priors(dim, device)
     prior = PRIORS[args.prior](**CONFIG_PRIORS[args.prior])
     
+    set_seed(args.seed)
     MLMC_CONFIG = {'Lmin':args.Lmin,
             'Lmax':args.Lmax,
             'N0':args.N0,
@@ -270,6 +276,10 @@ if __name__ == '__main__':
             'prior':prior
             }
     
+    # save config
+    with open(os.path.join(path_results, "mlmc_config.pickle"), "wb") as f:
+        pickle.dump(MLMC_CONFIG, f)
+    
     # Bayesian log regressor
     bayesian_logregress = Bayesian_logistic(**MLMC_CONFIG)
     
@@ -280,7 +290,7 @@ if __name__ == '__main__':
 
 
     # 2. get complexities
-    Eps = [0.01, 0.001,0.0005, 0.0001]#, 0.0005]
+    Eps = [0.005, 0.001, 0.0005, 0.0001, 0.00005]#, 0.0005]
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
             os.path.join(path_results, "log.txt"))
 
@@ -291,3 +301,4 @@ if __name__ == '__main__':
     # 4. save
     bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
             os.path.join(path_results, "masga_results.pickle"))
+

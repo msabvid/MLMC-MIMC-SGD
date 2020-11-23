@@ -39,7 +39,7 @@ class Bayesian_Inference(MLMC):
 
         """
         #net.params.data.copy_(mu + std * torch.randn_like(net.params))
-        net.params.data.copy_(torch.zeros_like(net.params))
+        net.params.data.copy_(0.5*torch.ones_like(net.params))
 
 
     def euler_step(self, nets, U, sigma, h, dW):
@@ -162,7 +162,8 @@ class Bayesian_Inference(MLMC):
         
         L = len(Nl)
         CL = self.n0 *  (1 + self.s0 * self.M ** L)
-        cost = 2/eps**2 * self.var_Pf[min(L, len(self.var_Pf)-1)] * CL
+        #cost = 2/eps**2 * self.var_Pf[min(L-1, len(self.var_Pf)-1)] * CL
+        cost = 2/eps**2 * self.var_Pf[0] * CL
                 
         return cost
     
@@ -190,9 +191,10 @@ class Bayesian_Inference(MLMC):
         self.write(logfile, "***  Calculating target ***\n")
         self.write(logfile, "***************************\n")
         L = self.Lmax
-        sums_level_l = self.mlmc_fn(L, 50000)
-        avg_Pf = sums_level_l[4]/50000
-        self.target = avg_Pf 
+        #sums_level_l = self.mlmc_fn(L, 10000)
+        #avg_Pf = sums_level_l[4]/10000
+        #self.target = avg_Pf 
+        self.target = sum(self.avg_Pf_Pc)
         self.write(logfile, "target = {:.4f}\n\n".format(self.target))
         return 1
 
@@ -218,8 +220,8 @@ if __name__ == '__main__':
     parser.add_argument('--N', type=int, default=5000, help='samples for convergence tests')
     parser.add_argument('--L', type=int, default=5, help='levels for convergence tests')
     parser.add_argument('--s0', type=int, default=256, help='initial value of data batch size')
-    parser.add_argument('--N0', type=int, default=2, help='initial number of samples for MLMC algorithm')
-    parser.add_argument('--Lmin', type=int, default=0, help='minimum refinement level')
+    parser.add_argument('--N0', type=int, default=10, help='initial number of samples for MLMC algorithm')
+    parser.add_argument('--Lmin', type=int, default=1, help='minimum refinement level')
     parser.add_argument('--Lmax', type=int, default=10, help='maximum refinement level')
     parser.add_argument('--device', default='cpu', help='device')
     parser.add_argument('--dim', type=int, default=2, help='dimension of data if type_data==synthetic')
@@ -251,7 +253,7 @@ if __name__ == '__main__':
     # path numerical results
     dim = data_X.shape[1]
     data_size = data_X.shape[0]
-    path_results = "./numerical_results/mlmc_subsampling/mixture/{}_d{}_m{}".format(args.type_data, dim, data_size)
+    path_results = "./numerical_results/mlmc_subsampling/mixture/prior_{}/{}_d{}_m{}".format(args.prior, args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -281,11 +283,14 @@ if __name__ == '__main__':
     # 1.a Convergence tests
     bayesian_mixture.estimate_alpha_beta_gamma(args.L, args.N, 
             os.path.join(path_results,"log.txt"))
+    bayesian_mixture.N_samples_convergence = args.N
     #bayesian_logregress.save_convergence_test(os.path.join(path_results, "{}_level_s_data.txt".format()))
 
+    # estimate target
+    bayesian_mixture.get_target(os.path.join(path_results, "log.txt"))
 
     # 2. get complexities
-    Eps = [0.01,0.001,0.0005,0.0001]#,0.00005]#[0.01, 0.001,0.0005, 0.0001]#, 0.0005]
+    Eps = [0.01,0.005,0.001,0.0005, 0.0001]#,0.00005]#[0.01, 0.001,0.0005, 0.0001]#, 0.0005]
     Nl_list, mlmc_cost, std_cost = bayesian_mixture.get_complexities(Eps, 
             os.path.join(path_results, "log.txt"))
 

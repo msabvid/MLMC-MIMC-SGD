@@ -47,6 +47,9 @@ class MIMC(ABC):
         self.var_Pf_Pc = None
         self.var_Pf = None
 
+        self.N_samples_convergence=None
+        self.target = None
+
     def _mimc(self,eps):
         """Multi-level Monte Carlo estimation achieving 
         MSE = Bias^2 + Var < eps^2, and minimising total cost for fixed variance <= 0.5 * eps^2
@@ -85,7 +88,7 @@ class MIMC(ABC):
         suml = np.zeros([2,L+1,L+1]) # first matrix:   second matrix:
         dNl = self.N0 * np.ones_like(Nl) # this will store the number of remaining samples per level to generate to achieve target variance
         Cl = np.zeros_like(Nl)
-
+        converged_weak_error = False
         while np.sum(dNl)>0:
             # update sample sums
             for l1,l2 in product(range(L+1), range(L+1)):
@@ -98,12 +101,22 @@ class MIMC(ABC):
             # compute the absolute average and variance **at each level**, necessary to calculate additional samples
             ml = np.abs(suml[0,:,:]/Nl)
             Vl = np.maximum(0, suml[1,:,:]/Nl - ml**2)
+            if self.N_samples_convergence:
+                for l1,l2 in product(range(L+1), range(L+1)):
+                    if Nl[l1,l2]<self.N_samples_convergence and l1==0 and l2==0:
+                        Vl[l1,l2] = self.var_Pf[0,0]
+                    elif Nl[l1,l2]<self.N_samples_convergence and l1>1 and l2>1:
+                        try:
+                            Vl[l1,l2] = self.var_Pf_Pc[l1,l2]
+                        except:
+                            Vl[l1,l2] = 2**(self.beta.predict(np.array([[l1,l2]])))
+                    else: 
+                        Vl[l1,l2] = 2**(self.beta.predict(np.array([[l1,l2]])))
             
             
             # set optimal number of additional samples (dNl) in order to minimise total cost for a fixed variance
             for l1,l2 in product(range(L+1), range(L+1)):
                 Cl[l1,l2] = self.n0 * (self.M ** l1) * (1 + self.s0 * self.M ** l2)
-                #Cl[l1,l2] = 2**(self.gamma.predict(np.array([[l1,l2]])))#-self.gamma.intercept_)
             
             Ns = np.ceil(np.sqrt(Vl/Cl) * np.sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
             dNl = np.maximum(0, Ns-Nl)
@@ -112,9 +125,10 @@ class MIMC(ABC):
             # few samples to add, 
             # estimate remaining error and decide whether a new level is required
             converged = (dNl < 0.01 * Nl)
-            if np.all(converged):
+            if np.all(converged) and not converged_weak_error:
                 P = np.sum(suml[0,:,:]/Nl)
                 if self.get_weak_error(L) > np.sqrt(1/2) * eps:
+                #if self.get_weak_error_from_target(P)>np.sqrt(1/2) * eps:
                     if L == self.Lmax:
                         raise WeakConvergenceFailure("Failed to achieve weak convergence")
                     else:
@@ -122,16 +136,11 @@ class MIMC(ABC):
                         Vl = np.pad(Vl, ((0,1),(0,1)), mode="constant", constant_values=0)
                         for l1, l2 in zip([L]*L, range(L)):      
                             Vl[l1,l2] = 2**(self.beta.predict(np.array([[l1,l2]])))
-                            #Vl[l1,l2] = Vl[l1-1,l2]* 2**(self.beta.coef_[0,0])
                         for l1, l2 in zip(range(L), [L]*L):      
                             Vl[l1,l2] = 2**(self.beta.predict(np.array([[l1,l2]])))
-                            #Vl[l1,l2] = Vl[l1,l2-1]* 2**(self.beta.coef_[0,1])
-                        #Vl[L,L] = Vl[L-1,L-1] * 2**(self.beta.coef_[0,0] + self.beta.coef_[0,1])
                         Vl[L,L] = 2**(self.beta.predict(np.array([[L,L]])))
-                        
                         Nl = np.pad(Nl, ((0,1),(0,1)), mode = "constant", constant_values = 0.0)
                         suml = np.pad(suml, ((0,0),(0,1),(0,1)), mode="constant", constant_values=0.0)
-                        
 
                         # we decide how many samples need to be added in the new level
                         Cl = np.zeros([L+1,L+1])
@@ -142,18 +151,20 @@ class MIMC(ABC):
                         Ns = np.ceil(np.sqrt(Vl/Cl) * np.sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
                         dNl = np.maximum(0, Ns-Nl)
                 else:
-                    pass
+                    converged_weak_error = True
         
         # finally, evaluate the multi-level estimator
         P = np.sum(suml[0,:,:]/Nl)
-        return P, Nl
+        Ns = np.ceil(np.sqrt(Vl/Cl) * np.sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
+        return P, Ns # We return Ns!
 
 
     
     def estimate_alpha_beta_gamma(self, L, N, logfile):
         """Returns alpha, beta, gamma
         """
-        
+        self.N_samples_convergence=N
+
         format_string = "{:<10}{:<10}{:<15}{:<15}{:<15}{:<15}{:<15}"
         self.write(logfile, "**********************************************************\n")
         self.write(logfile, "*** Convergence tests, kurtosis, telescoping sum check ***\n")
@@ -183,14 +194,6 @@ class MIMC(ABC):
             var_Pf_Pc[l1,l2] = (sums_level_l[1]-sums_level_l[0]**2)
             var_Pf[l1,l2] = (sums_level_l[5]-sums_level_l[4]**2)
                 
-
-            #if (l1,l2)==(0,0):
-            #    check = 0
-            #else:
-            #    check = abs(avg_Pf_Pc[l] + avg_Pf[l] - avg_Pf[l-1])
-            #    check = check / (3*(math.sqrt(var_Pf_Pc[l]) + math.sqrt(var_Pf[l-1]) +\
-            #             math.sqrt(var_Pf[l]) )/math.sqrt(N) )
-            #chk1.append(check)
             format_string = "{:<10}{:<10}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}\n"
             self.write(logfile, format_string.format(l1,l2,avg_Pf_Pc[l1,l2], avg_Pf[l1,l2], var_Pf_Pc[l1,l2], var_Pf[l1,l2],cost[l1,l2]))
 
@@ -200,7 +203,7 @@ class MIMC(ABC):
         # we approximate alpha, beta, gamma, see Theorem 2
         # in http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf
         x = list(product(range(L1,L2), range(L1,L2)))
-        xx = np.array(x)+1
+        xx = np.array(x)#+1
         
         #alpha
         y = np.array([avg_Pf_Pc[idx] for idx in x]).reshape(-1,1)
@@ -340,9 +343,9 @@ class MIMC(ABC):
                 'std_cost':std_cost,
                 'avg_Pf_Pc':self.avg_Pf_Pc,
                 'var_Pf_Pc':self.var_Pf_Pc,
-                'alpha':self.alpha,
-                'beta':self.beta,
-                'gamma':self.gamma}
+                'alpha':self.alpha.coef_,
+                'beta':self.beta.coef_,
+                'gamma':self.gamma.coef_}
 
         with open(filename,"wb") as f:
             pickle.dump(output, f)

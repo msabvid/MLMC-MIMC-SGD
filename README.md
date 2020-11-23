@@ -25,6 +25,7 @@ For the MLMC and MIMC part of the code, code initially based on https://bitbucke
 
 ## Running the code
 
+- SGLD with and without control variate
 ```
-python 
+python logistic_sgld_cv.py --device 2 --subsample_size 10000 --dim 10 --type_data covtype --N 100
 ```

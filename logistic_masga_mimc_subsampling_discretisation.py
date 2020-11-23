@@ -104,7 +104,7 @@ class Bayesian_logistic(MIMC):
         # drift estimation level
         sf = self.s0 * self.M ** ls
         sc = int(sf/self.M)
-        sigma_f = 1/math.sqrt(self.data_size)
+        sigma_f = 5/math.sqrt(self.data_size)
         
         
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
@@ -196,11 +196,13 @@ class Bayesian_logistic(MIMC):
         Nl : np.ndarray
             Number of samples per level
         """
-        
-        
-        x = np.array(Nl.shape).reshape(1,-1) 
-        Cl = self.n0 * (self.M ** x[0,0]) * (1 + self.s0 * self.M ** x[0,1])
-        cost = 2/eps**2 * self.var_Pf[-1,-1] * Cl
+        x = np.array(Nl.shape) - 1 
+        Cl = self.n0 * (self.M ** x[0]) * (1 + self.s0 * self.M ** x[1])
+        #try:
+        #    cost = np.ceil(2/eps**2 * self.var_Pf[x[0],x[1]]) * Cl
+        #except:
+        #    cost = np.ceil(2/eps**2 * self.var_Pf[-1,-1]) * Cl
+        cost = np.ceil(2/eps**2 * self.var_Pf[0,0]) * Cl
         return cost
     
     def get_cost_MLMC(self, eps, Nl):
@@ -226,18 +228,24 @@ class Bayesian_logistic(MIMC):
         self.write(logfile, "\n***************************\n")
         self.write(logfile, "***  Calculating target ***\n")
         self.write(logfile, "***************************\n")
-        Lh, Ls = 4,4
-        avg_Pf_Pc = np.zeros([Lh+1,Ls+1])
-        for lh,ls in product(range(Lh+1), range(Ls+1)):
-            sums_level_l = self.mlmc_fn((lh,ls), 5000)
-            avg_Pf_Pc[lh,ls] = sums_level_l[0]/5000
-            avg_Pf = sums_level_l[4]/5000
-            format_string = "{:<5}{:<5}{:<15.4e}{:<15.4e}\n"
-            self.write(logfile,format_string.format(lh,ls,avg_Pf_Pc[lh,ls], avg_Pf))
-        self.target = np.sum(avg_Pf_Pc)
+        Lh, Ls = 7,7
+        #sums_level_l = self.mlmc_fn((Lh,Ls), 5000)
+        #self.target = sums_level_l[4]/5000 + sum(self.avg_Pf_Pc)
+        self.target = np.sum(self.avg_Pf_Pc)
+        #avg_Pf_Pc = np.zeros([Lh+1,Ls+1])
+        #for lh,ls in product(range(Lh+1), range(Ls+1)):
+        #    sums_level_l = self.mlmc_fn((lh,ls), 5000)
+        #    avg_Pf_Pc[lh,ls] = sums_level_l[0]/5000
+        #    avg_Pf = sums_level_l[4]/5000
+        #    format_string = "{:<5}{:<5}{:<15.4e}{:<15.4e}\n"
+        #    self.write(logfile,format_string.format(lh,ls,avg_Pf_Pc[lh,ls], avg_Pf))
+        #self.target = np.sum(avg_Pf_Pc)
         self.write(logfile, "target = {:.4f}\n\n".format(self.target))
         return 0
     
+    def get_weak_error_from_target(self, P):
+        weak_error = np.abs(P-self.target)
+        return weak_error
     
     def get_weak_error(self, L):
         """Get weak error of MLMC approximation
@@ -247,13 +255,13 @@ class Bayesian_logistic(MIMC):
 
         #weak_error = np.abs(P-self.target) 
         for l1, l2 in zip([L+1]*(L+1), range(L+1)):
-            sums_level_l = self.mlmc_fn((l1,l2),5000)
-            weak_error += sums_level_l[0]/5000
+            sums_level_l = self.mlmc_fn((l1,l2),10000)
+            weak_error += sums_level_l[0]/10000
         for l1, l2 in zip(range(L+1), [L+1]*(L+1)):
-            sums_level_l = self.mlmc_fn((l1,l2),5000)
-            weak_error += sums_level_l[0]/5000
-        sums_level_l = self.mlmc_fn((L+1,L+1),5000)
-        weak_error += sums_level_l[0]/5000
+            sums_level_l = self.mlmc_fn((l1,l2),10000)
+            weak_error += sums_level_l[0]/10000
+        sums_level_l = self.mlmc_fn((L+1,L+1),10000)
+        weak_error += sums_level_l[0]/10000
         return abs(weak_error)
         
             
@@ -296,7 +304,7 @@ if __name__ == '__main__':
     # path numerical results
     dim = data_X.shape[1]
     data_size = data_X.shape[0]
-    path_results = "./numerical_results/mimc/logistic/{}_d{}_m{}".format(args.type_data, dim, data_size)
+    path_results = "./numerical_results/mimc/logistic/prior_{}/{}_d{}_m{}".format(args.prior, args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
@@ -311,7 +319,7 @@ if __name__ == '__main__':
             'M':args.M,
             'T':args.T,
             's0':args.s0,
-            'n0':10, # initial number of steps at level 0
+            'n0':args.n_steps, # initial number of steps at level 0
             'data_X':data_X,
             'data_Y':data_Y,
             'device':device,
@@ -323,12 +331,13 @@ if __name__ == '__main__':
     
     # 1. Convergence tests
     bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, 
-            os.path.join(path_results, "convergence_test_h_s_mimc.txt"))
+            os.path.join(path_results, "log.txt"))
 
     # 2. get complexities
-    Eps = [0.1,0.01, 0.001, 0.0005]#, 0.0005]#, 0.0001]
+    bayesian_logregress.get_target(os.path.join(path_results, "log.txt"))
+    Eps = [0.01, 0.005, 0.001, 0.0005]#, 0.0005]#, 0.0001]
     Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
-            os.path.join(path_results, "convergence_test_h_s_mimc.txt"))
+            os.path.join(path_results, "log.txt"))
 
     # 3. plot
     bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 

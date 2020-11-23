@@ -89,7 +89,7 @@ class MLMC(ABC):
         Nl = np.zeros(L+1) # this will store number of MC samples per level
         suml = np.zeros([2,L+1]) # first row:   second row:
         dNl = self.N0 * np.ones(L+1) # this will store the number of remaining samples per level to generate to achieve target variance
-        
+        converged_weak_error = False
         while sum(dNl)>0:
             # update sample sums
             for l in range(0,L+1):
@@ -124,15 +124,13 @@ class MLMC(ABC):
             # few samples to add, 
             # estimate remaining error and decide whether a new level is required
             converged = (dNl < 0.01 * Nl)
-            if all(converged):
-                
+            if all(converged) and not converged_weak_error:
                 #P = sum(suml[0,:]/Nl)
                 #if self.get_weak_error_from_target(P) > np.sqrt(1/2) * eps:
-                if L==0 and self.target is not None:
-                    weak_error = abs(sum(suml[0,:]/Nl)-self.target)
-                else:
-                    weak_error = self.get_weak_error(ml)
-                    
+                #if L==0 and self.target is not None:
+                #    weak_error = abs(sum(suml[0,:]/Nl)-self.target)
+                #else:
+                weak_error = self.get_weak_error(ml)
                 #if self.get_weak_error(ml) > np.sqrt(1/2) * eps:
                 if weak_error > np.sqrt(1/2) * eps:
                     if L == self.Lmax:
@@ -154,12 +152,12 @@ class MLMC(ABC):
                         Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
                         dNl = np.maximum(0, Ns-Nl)
                 else:
-                    pass
+                    converged_weak_error = True
         
         # finally, evaluate the multi-level estimator
         P = sum(suml[0,:]/Nl)
         Ns = np.ceil(np.sqrt(Vl/Cl) * sum(np.sqrt(Vl*Cl)) / ((1-theta)*eps**2)) # check http://people.maths.ox.ac.uk/~gilesm/files/acta15.pdf page 4
-        return P, Nl
+        return P, Ns # we return Ns!
 
 
     @abstractmethod
@@ -171,7 +169,8 @@ class MLMC(ABC):
     def estimate_alpha_beta_gamma(self, L, N, logfile):
         """Returns alpha, beta, gamma
         """
-        
+        self.N_samples_convergence = N
+
         format_string = "{:<10}{:<15}{:<15}{:<15}{:<15}{:<15}"
         self.write(logfile, "**********************************************************\n")
         self.write(logfile, "*** Convergence tests, kurtosis, telescoping sum check ***\n")
