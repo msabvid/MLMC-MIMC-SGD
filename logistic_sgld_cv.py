@@ -22,7 +22,7 @@ from lib.hyperparameters import config_priors
 
 class SGLD():
 
-    def __init__(self, T, n_steps, data_X, data_Y, prior, device):
+    def __init__(self, T, n_steps, data_X, data_Y, prior, device, MAP = None):
         self.data_X = data_X
         self.data_Y = data_Y
         self.dim = data_X.shape[1]-1 # -1 is to subtract column of 1s in the data to account for the intercept
@@ -33,34 +33,41 @@ class SGLD():
         self.prior = prior
         
         # we estimate the MAP, and the log-likelihood of the dataset using the MAP
-        self.MAP = self.estimate_MAP(epochs=args.n_steps,batch_size=self.data_size) # object of class LogisticNets
+        if MAP:
+            X = LogisticNets(self.dim, N=1)#.to(device=self.device)
+            X.load_state_dict(MAP)
+            X.to(device=self.device)
+            self.MAP = X
+        else:
+            self.MAP = self.estimate_MAP(epochs=args.n_steps,batch_size=self.data_size) # object of class LogisticNets
         self.grad_loglik_MAP = self.get_grad_loglik_MAP() # tensor of size (1, self.dim+1)
 
     def estimate_MAP(self, epochs, batch_size):
         """
         We estimate the MAP using usual SGD with RMSprop
         """
-        hf = min(self.T/self.n_steps, 0.0001)
-        epochs = max(epochs, 200000)
+        hf = 1e-5#min(self.T/self.n_steps, 0.0001)
+        epochs = max(epochs, 100000)
         print("estimating MAP for control variate")
         pbar = tqdm.tqdm(total=epochs)
         X = LogisticNets(self.dim, N=1).to(device=self.device)
-        #self.init_weights(X)
+        self.init_weights(X)
         
         sf=self.data_size
         for step in range(epochs):
             #U = np.random.choice(self.data_size, (1, sf), replace=True)
             U = np.arange(self.data_size).reshape(1,batch_size)
             X.zero_grad()
-            drift = 1/self.data_size * self.prior.logprob(X.params) + 1/batch_size * X.loglik(self.data_X, self.data_Y, U)
+            drift = self.prior.logprob(X.params) + self.data_size/batch_size * X.loglik(self.data_X, self.data_Y, U)
             drift.backward(torch.ones_like(drift))
-            X.params.data.copy_(X.params.data + hf/2*(X.params.grad))
-            #X.forward_backward_pass(self.data_X, self.data_Y, U)
-            #params_updated = X.params.data + hf/2 * (1/self.data_size*self.grad_logprior(X.params.data) +
-            #        1/sf*X.params.grad) 
-            #X.params.data.copy_(params_updated)
+            X.params.data.copy_(X.params.data + hf*(X.params.grad))
             pbar.update(1)
+            if step % 100 == 0:
+                pbar.write("norm grad log prob={}".format(torch.norm(X.params.grad, p="fro").item()))
         return X
+
+    def save_MAP(self, filename):
+        torch.save(self.MAP.state_dict(), filename)
 
 
     def get_grad_loglik_MAP(self):
@@ -91,7 +98,6 @@ class SGLD():
         """
         with torch.no_grad():
             F = torch.norm(nets.params, p=2, dim=1)**2
-        #F = nets
         return F.cpu().numpy()
     
     def solve(self, N, sf):
@@ -105,30 +111,29 @@ class SGLD():
         sf: int
             Subsample size
         """
-        hf = self.T/self.n_steps
-        sigma = 1/math.sqrt(self.data_size)  
+        hf = 0.1/self.data_size#1e-8#1/self.data_size#self.T/self.n_steps
+        #sigma = 1/math.sqrt(self.data_size)  
+        sigma = math.sqrt(2)
         sum1, sum2 = np.zeros(self.n_steps), np.zeros(self.n_steps) #first and second order moments
         print("Solving SGLD...")
-        pbar = tqdm.tqdm(total=N)
+        n_steps = min(100000, self.n_steps)
         for N1 in range(0,N,5000):
             N2 = min(5000, N-N1) # we will do batches of paths of size N2
             X = LogisticNets(self.dim, N2).to(device=self.device)
             self.init_weights(X)
             # Euler scheme on Stochastic Langevin process
-            for step in range(self.n_steps):
+            pbar = tqdm.tqdm(total=n_steps)
+            for step in range(n_steps):
                 dW = math.sqrt(hf) * torch.randn_like(X.params)
                 U = np.random.choice(self.data_size, (N2, sf), replace=True)
                 X.zero_grad()
-                drift_langevin = 1/self.data_size*self.prior.logprob(X.params) + 1/sf * X.loglik(self.data_X, self.data_Y,U)
+                drift_langevin = self.prior.logprob(X.params) + self.data_size/sf * X.loglik(self.data_X, self.data_Y,U)
                 drift_langevin.backward(torch.ones_like(drift_langevin))
-                X.params.data.copy_(X.params.data + hf/2*(X.params.grad) + sigma*dW)
-                #X.forward_backward_pass(self.data_X, self.data_Y, U)
-                #params_updated = X.params.data + hf/2 * (1/self.data_size*self.prior.grad_logprob(X.params.data) +
-                #        1/sf * X.params.grad) + sigma*dW
-                #X.params.data.copy_(params_updated)
+                X.params.data.copy_(X.params.data + hf*(X.params.grad) + sigma*dW)
                 sum1[step] += np.sum(self.Func(X)) # first moment
                 sum2[step] += np.sum(self.Func(X)**2) # second moment
-            pbar.update(N2)
+                if step%100==0:
+                    pbar.update(100)
         
         return sum1/N, sum2/N
     
@@ -144,11 +149,12 @@ class SGLD():
         sf: int
             Subsample size
         """
-        hf = self.T/self.n_steps
-        sigma = 1/math.sqrt(self.data_size)  
+        hf = 0.1/self.data_size#1e-8#1/self.data_size#self.T/self.n_steps
+        #sigma = 1/math.sqrt(self.data_size)  
+        sigma = math.sqrt(2)
         sum1, sum2 = np.zeros(self.n_steps), np.zeros(self.n_steps) #first and second order moments
         print("Solving SGLD with CV...")
-        pbar = tqdm.tqdm(total=N)
+        n_steps = min(self.n_steps, 100000)
         for N1 in range(0,N,5000):
             N2 = min(5000, N-N1) # we will do batches of paths of size N2
             X = LogisticNets(self.dim, N2).to(device=self.device)
@@ -158,20 +164,22 @@ class SGLD():
             MAP = copy.deepcopy(self.MAP)
             MAP.params.data = self.MAP.params.data.repeat((N2,1))
             # Euler scheme on Stochastic Langevin process with cv
-            for step in range(self.n_steps):
+            pbar = tqdm.tqdm(total=n_steps)
+            for step in range(n_steps):
                 dW = math.sqrt(hf) * torch.randn_like(X.params)
                 U = np.random.choice(self.data_size, (N2, sf), replace=True)
                 X.zero_grad()
                 MAP.zero_grad()
                 X.forward_backward_pass(self.data_X, self.data_Y, U)
                 MAP.forward_backward_pass(self.data_X, self.data_Y, U)
-                params_updated = X.params.data + hf/2 * (1/self.data_size*self.prior.grad_logprob(X.params.data) +
-                        1/self.data_size*grad_loglik_MAP + 1/sf*(X.params.grad - MAP.params.grad)) + sigma*dW
+                params_updated = X.params.data + hf * (self.prior.grad_logprob(X.params.data) +
+                        grad_loglik_MAP + self.data_size/sf*(X.params.grad - MAP.params.grad)) + sigma*dW
                 X.params.data.copy_(params_updated)
 
                 sum1[step] += np.sum(self.Func(X)) # first order moment
                 sum2[step] += np.sum(self.Func(X)**2) # second order moment
-            pbar.update(5000)
+                if step%100==0:
+                    pbar.update(100)
 
         return sum1/N, sum2/N
 
@@ -249,6 +257,15 @@ if __name__ == '__main__':
     if not os.path.exists(path_results):
         os.makedirs(path_results)
     
+    # load the mode
+    path_mode = "./numerical_results/sgld_cv/logistic/mode_{}_d{}_m{}".format(args.type_data, dim, data_size)
+    if not os.path.exists(path_mode):
+        os.makedirs(path_mode)
+    try:
+        MAP = torch.load(os.path.join(path_mode, "MAP.pth.tar"), map_location="cpu") # state_dict
+    except:
+        MAP = None
+    
     # prior configuration
     PRIORS = {"Gaussian":Gaussian, "MixtureGaussians":MixtureGaussians}
     CONFIG_PRIORS = config_priors(dim, device)
@@ -261,7 +278,8 @@ if __name__ == '__main__':
             data_X=data_X,
             data_Y=data_Y,
             device=device,
-            prior=prior)
+            prior=prior,
+            MAP=MAP)
     
     # 1. We calculate E(F(X)) and E(F(X)**2) for stochastic Langevin process
     sgld_1, sgld_2 = sgld.solve(N=args.N, sf=args.subsample_size)
@@ -275,5 +293,6 @@ if __name__ == '__main__':
     make_plots(path_results, results)
     with open(os.path.join(path_results, "sgld_results.pickle"), "wb") as f:
         pickle.dump(results, f)
-
+    
+    sgld.save_MAP(os.path.join(path_mode, "MAP.pth.tar"))
 
