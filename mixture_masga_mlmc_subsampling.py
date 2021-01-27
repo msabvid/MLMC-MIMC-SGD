@@ -9,6 +9,7 @@ import argparse
 import numpy as np
 import math
 from sklearn.datasets import make_blobs
+import tqdm
 
 from mlmc_mimc import MLMC 
 from lib.data import get_dataset
@@ -60,9 +61,9 @@ class Bayesian_Inference(MLMC):
         """
         nets.zero_grad()
         subsample_size = U.shape[1]
-        drift_langevin = 1/self.data_size * self.prior.logprob(nets.params) + 1/subsample_size * nets.loglik(self.data_X, U)
+        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(self.data_X, U)
         drift_langevin.backward(torch.ones_like(drift_langevin))
-        nets.params.data.copy_(nets.params.data + h/2*(nets.params.grad) + sigma * dW)
+        nets.params.data.copy_(nets.params.data + h*(nets.params.grad) + sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError("getting nans in SDE step")
         return 0
@@ -93,33 +94,32 @@ class Bayesian_Inference(MLMC):
         dim = self.data_X.shape[1]#-1 # we don't have an intercept in this model
         
         nf = self.n0 # n steps discretisation level
-        hf = self.T/nf # step size in discretisation level
+        hf = 1/self.data_size#self.T/nf # step size in discretisation level
         
         sf = self.s0 * self.M ** l
         sc = int(sf/self.M)
-        sigma_f = 1/math.sqrt(self.data_size)
+        sigma_f = math.sqrt(2)#1/math.sqrt(self.data_size)
 
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
-
-        for N1 in range(0, N, 1000):
-            N2 = min(1000, N-N1) # we will do batches of paths of size N2
+        for N1 in range(0, N, 4000):
+            N2 = min(4000, N-N1) # we will do batches of paths of size N2
             
-            X_f = MixtureGaussianNets(dim, N2, sigma_x=math.sqrt(2)).to(device=self.device)
+            X_f = MixtureGaussianNets(dim, N2, sigma_x=math.sqrt(5)).to(device=self.device)
             self.init_weights(X_f)
 
             X_c1 = copy.deepcopy(X_f) # 1st coarse process for antithetics
             X_c2 = copy.deepcopy(X_f) # 2nd coarse process for antithetics
             
-            dW = torch.zeros_like(X_f.params)
-
+            pbar = tqdm.tqdm(total=self.n0)
             for n in range(int(nf)):
-                dW = math.sqrt(hf) * torch.randn_like(dW)
+                dW = math.sqrt(hf) * torch.randn_like(X_f.params)
                 U = np.random.choice(self.data_size, (N2,sf), replace=True)
                 self.euler_step(X_f, U, sigma_f, hf, dW)
-                
                 if l>0:
                     self.euler_step(X_c1, U[:,:sc], sigma_f, hf, dW)
                     self.euler_step(X_c2, U[:,sc:], sigma_f, hf, dW)
+                if n%100==0:
+                    pbar.update(100)
 
             F_fine = self.Func(X_f)
             F_coarse_antithetic = 0.5 * (self.Func(X_c1)+self.Func(X_c2)) if l>0 else 0
@@ -217,7 +217,7 @@ if __name__ == '__main__':
     #CONFIGURATION
     parser = argparse.ArgumentParser()
     parser.add_argument('--M', type=int, default=2, help='refinement value')
-    parser.add_argument('--N', type=int, default=5000, help='samples for convergence tests')
+    parser.add_argument('--N', type=int, default=1000, help='samples for convergence tests')
     parser.add_argument('--L', type=int, default=5, help='levels for convergence tests')
     parser.add_argument('--s0', type=int, default=256, help='initial value of data batch size')
     parser.add_argument('--N0', type=int, default=10, help='initial number of samples for MLMC algorithm')
@@ -258,10 +258,8 @@ if __name__ == '__main__':
         os.makedirs(path_results)
     
     # prior configuration
-    PRIORS = {"Gaussian":Gaussian, "MixtureGaussians":MixtureGaussians}
-    CONFIG_PRIORS = config_priors(dim, device)
-    prior = PRIORS[args.prior](**CONFIG_PRIORS[args.prior])
-
+    prior = Gaussian(mu=torch.zeros(dim, device=device),
+            diagSigma=torch.tensor([10.,1.], device=device, dtype=torch.float32))
     # likelihood configuration
     
     MLMC_CONFIG = {'Lmin':args.Lmin,
@@ -284,20 +282,22 @@ if __name__ == '__main__':
     bayesian_mixture.estimate_alpha_beta_gamma(args.L, args.N, 
             os.path.join(path_results,"log.txt"))
     bayesian_mixture.N_samples_convergence = args.N
+    bayesian_mixture.save(Eps=None, Nl_list=None, mlmc_cost=None, std_cost=None, 
+            filename=os.path.join(path_results, "masga_results.pickle"))
     #bayesian_logregress.save_convergence_test(os.path.join(path_results, "{}_level_s_data.txt".format()))
 
     # estimate target
-    bayesian_mixture.get_target(os.path.join(path_results, "log.txt"))
+    #bayesian_mixture.get_target(os.path.join(path_results, "log.txt"))
 
-    # 2. get complexities
-    Eps = [0.01,0.005,0.001,0.0005, 0.0001]#,0.00005]#[0.01, 0.001,0.0005, 0.0001]#, 0.0005]
-    Nl_list, mlmc_cost, std_cost = bayesian_mixture.get_complexities(Eps, 
-            os.path.join(path_results, "log.txt"))
+    ## 2. get complexities
+    #Eps = [0.1,0.01,0.001,0.0005,0.0001]#,0.00005]#[0.01, 0.001,0.0005, 0.0001]#, 0.0005]
+    #Nl_list, mlmc_cost, std_cost = bayesian_mixture.get_complexities(Eps, 
+    #        os.path.join(path_results, "log.txt"))
 
-    # 3. plot
-    bayesian_mixture.plot(Eps, Nl_list, mlmc_cost, std_cost, 
-            os.path.join(path_results,"masga_plots.pdf"))
-    
-    # 4. save
-    bayesian_mixture.save(Eps, Nl_list, mlmc_cost, std_cost, 
-            os.path.join(path_results, "masga_results.pickle"))
+    ## 3. plot
+    #bayesian_mixture.plot(Eps, Nl_list, mlmc_cost, std_cost, 
+    #        os.path.join(path_results,"masga_plots.pdf"))
+    #
+    ## 4. save
+    #bayesian_mixture.save(Eps, Nl_list, mlmc_cost, std_cost, 
+    #        os.path.join(path_results, "masga_results.pickle"))

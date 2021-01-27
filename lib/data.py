@@ -57,8 +57,8 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
         filename = "data_{}_covtype.pth.tar".format(type_regression)
         torch.save(data, os.path.join(data_dir, filename))
     elif type_regression=='MixtureGaussians':
-        theta1, theta2 = 0, 5
-        sigma_x = np.sqrt(2)
+        theta1, theta2 = 0, 1
+        sigma_x = np.sqrt(1)
         u1 = np.random.rand(m)
         u2 = np.random.rand(m)
         z1 = np.random.randn(m)

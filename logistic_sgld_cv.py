@@ -34,10 +34,9 @@ class SGLD():
         
         # we estimate the MAP, and the log-likelihood of the dataset using the MAP
         if MAP:
-            X = LogisticNets(self.dim, N=1)#.to(device=self.device)
-            X.load_state_dict(MAP)
-            X.to(device=self.device)
-            self.MAP = X
+            self.MAP = LogisticNets(self.dim, N=1)#.to(device=self.device)
+            self.MAP.load_state_dict(MAP)
+            self.MAP.to(device=self.device)
         else:
             self.MAP = self.estimate_MAP(epochs=args.n_steps,batch_size=self.data_size) # object of class LogisticNets
         self.grad_loglik_MAP = self.get_grad_loglik_MAP() # tensor of size (1, self.dim+1)
@@ -47,7 +46,7 @@ class SGLD():
         We estimate the MAP using usual SGD with RMSprop
         """
         hf = 1e-5#min(self.T/self.n_steps, 0.0001)
-        epochs = max(epochs, 100000)
+        epochs = max(epochs, 150000)
         print("estimating MAP for control variate")
         pbar = tqdm.tqdm(total=epochs)
         X = LogisticNets(self.dim, N=1).to(device=self.device)
@@ -64,6 +63,8 @@ class SGLD():
             pbar.update(1)
             if step % 100 == 0:
                 pbar.write("norm grad log prob={}".format(torch.norm(X.params.grad, p="fro").item()))
+            if step>100000:
+                hf = 1e-6
         return X
 
     def save_MAP(self, filename):
@@ -79,13 +80,18 @@ class SGLD():
         grad_loglik_MAP = copy.deepcopy(self.MAP.params.grad)
         return grad_loglik_MAP
 
-    @staticmethod
-    def init_weights(net, mu=0, std=1):
+    def init_weights(self, net):
         """ Init weights with prior
 
         """
         #net.params.data.copy_(mu + std * torch.randn_like(net.params))
-        net.params.data.copy_(torch.zeros_like(net.params))
+        #net.params.data.copy_(torch.zeros_like(net.params))
+        N = net.params.shape[0]
+        try:
+            net.params.data.copy_(self.MAP.params.data.repeat((N,1)))
+        except:
+            net.params.data.copy_(torch.zeros_like(net.params))
+
     
     def Func(self, nets):
         """Function of X. 
@@ -111,10 +117,11 @@ class SGLD():
         sf: int
             Subsample size
         """
-        hf = 0.1/self.data_size#1e-8#1/self.data_size#self.T/self.n_steps
+        hf = 5e-6#0.0001#0.1/self.data_size#1e-8#1/self.data_size#self.T/self.n_steps
         #sigma = 1/math.sqrt(self.data_size)  
         sigma = math.sqrt(2)
         sum1, sum2 = np.zeros(self.n_steps), np.zeros(self.n_steps) #first and second order moments
+        var = np.zeros_like(sum1)
         print("Solving SGLD...")
         n_steps = min(100000, self.n_steps)
         for N1 in range(0,N,5000):
@@ -126,16 +133,18 @@ class SGLD():
             for step in range(n_steps):
                 dW = math.sqrt(hf) * torch.randn_like(X.params)
                 U = np.random.choice(self.data_size, (N2, sf), replace=True)
+                #U = np.array([np.random.choice(self.data_size, (sf), replace=False) for i in range(N2)])
                 X.zero_grad()
                 drift_langevin = self.prior.logprob(X.params) + self.data_size/sf * X.loglik(self.data_X, self.data_Y,U)
                 drift_langevin.backward(torch.ones_like(drift_langevin))
                 X.params.data.copy_(X.params.data + hf*(X.params.grad) + sigma*dW)
                 sum1[step] += np.sum(self.Func(X)) # first moment
                 sum2[step] += np.sum(self.Func(X)**2) # second moment
+                var[step] = np.var(self.Func(X))
                 if step%100==0:
                     pbar.update(100)
         
-        return sum1/N, sum2/N
+        return sum1/N, sum2/N, var
     
     
     def solve_with_cv(self, N, sf):
@@ -149,10 +158,11 @@ class SGLD():
         sf: int
             Subsample size
         """
-        hf = 0.1/self.data_size#1e-8#1/self.data_size#self.T/self.n_steps
+        hf = 5e-6#0.0001 #0.1/self.data_size#1e-8#1/self.data_size#self.T/self.n_steps
         #sigma = 1/math.sqrt(self.data_size)  
         sigma = math.sqrt(2)
         sum1, sum2 = np.zeros(self.n_steps), np.zeros(self.n_steps) #first and second order moments
+        var = np.zeros_like(sum1)
         print("Solving SGLD with CV...")
         n_steps = min(self.n_steps, 100000)
         for N1 in range(0,N,5000):
@@ -168,6 +178,7 @@ class SGLD():
             for step in range(n_steps):
                 dW = math.sqrt(hf) * torch.randn_like(X.params)
                 U = np.random.choice(self.data_size, (N2, sf), replace=True)
+                #U = np.array([np.random.choice(self.data_size, (sf), replace=False) for i in range(N2)])
                 X.zero_grad()
                 MAP.zero_grad()
                 X.forward_backward_pass(self.data_X, self.data_Y, U)
@@ -175,13 +186,14 @@ class SGLD():
                 params_updated = X.params.data + hf * (self.prior.grad_logprob(X.params.data) +
                         grad_loglik_MAP + self.data_size/sf*(X.params.grad - MAP.params.grad)) + sigma*dW
                 X.params.data.copy_(params_updated)
-
+                
                 sum1[step] += np.sum(self.Func(X)) # first order moment
                 sum2[step] += np.sum(self.Func(X)**2) # second order moment
+                var[step] = np.var(self.Func(X))
                 if step%100==0:
                     pbar.update(100)
 
-        return sum1/N, sum2/N
+        return sum1/N, sum2/N, var
 
 
 def make_plots(path_results,results):
@@ -282,15 +294,17 @@ if __name__ == '__main__':
             MAP=MAP)
     
     # 1. We calculate E(F(X)) and E(F(X)**2) for stochastic Langevin process
-    sgld_1, sgld_2 = sgld.solve(N=args.N, sf=args.subsample_size)
+    sgld_1, sgld_2, sgld_var = sgld.solve(N=args.N, sf=args.subsample_size)
 
     # 2. We calculate E(F(X)) and E(F(X)**2) for stochastic Langevin process with control variate
-    sgld_cv_1, sgld_cv_2 = sgld.solve_with_cv(N=args.N, sf=args.subsample_size)
+    sgld_cv_1, sgld_cv_2, sgld_cv_var = sgld.solve_with_cv(N=args.N, sf=args.subsample_size)
 
     # Plots and results
-    results = [dict(moment1=sgld_1, moment2=sgld_2, label="$E(F(X))$ - sgld"),
-         dict(moment1=sgld_cv_1, moment2=sgld_cv_2, label="$E(F(X))$ - sgld_cv")]
-    make_plots(path_results, results)
+    results = [dict(moment1=sgld_1, moment2=sgld_2, var=sgld_var, label="$E(F(X))$ - sgld"),
+         dict(moment1=sgld_cv_1, moment2=sgld_cv_2, var=sgld_cv_var, label="$E(F(X))$ - sgld_cv")]
+    print("sgld_var={:.4f}, sgld_cv_var={:.4f}".format(sgld_var[-1], sgld_cv_var[-1]))
+    print("sgld_1={:.4f}, sgld_cv_1={:.4f}".format(sgld_1[-1], sgld_cv_1[-1]))
+    #make_plots(path_results, results)
     with open(os.path.join(path_results, "sgld_results.pickle"), "wb") as f:
         pickle.dump(results, f)
     

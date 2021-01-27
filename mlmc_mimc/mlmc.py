@@ -125,13 +125,7 @@ class MLMC(ABC):
             # estimate remaining error and decide whether a new level is required
             converged = (dNl < 0.01 * Nl)
             if all(converged) and not converged_weak_error:
-                #P = sum(suml[0,:]/Nl)
-                #if self.get_weak_error_from_target(P) > np.sqrt(1/2) * eps:
-                #if L==0 and self.target is not None:
-                #    weak_error = abs(sum(suml[0,:]/Nl)-self.target)
-                #else:
                 weak_error = self.get_weak_error(ml)
-                #if self.get_weak_error(ml) > np.sqrt(1/2) * eps:
                 if weak_error > np.sqrt(1/2) * eps:
                     if L == self.Lmax:
                         raise WeakConvergenceFailure("Failed to achieve weak convergence")

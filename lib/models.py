@@ -27,7 +27,7 @@ class LogisticNets(nn.Module):
 
     def forward(self, data_X, idx=0):
         y = torch.matmul(data_X, self.params[idx, :].view(-1,1))
-        y = torch.sigmoid(y)
+        y = torch.sigmoid(y) # (N, 1)
         return y
     
     

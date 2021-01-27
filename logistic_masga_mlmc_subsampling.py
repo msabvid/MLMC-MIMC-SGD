@@ -9,6 +9,7 @@ import argparse
 import numpy as np
 import math
 from sklearn.datasets import make_blobs
+import tqdm
 import pickle
 
 from mlmc_mimc import MLMC 
@@ -25,7 +26,7 @@ class Bayesian_logistic(MLMC):
         super().__init__(Lmin, Lmax, N0)
         self.data_X = data_X
         self.data_Y = data_Y
-        self.dim = data_X.shape[1]
+        self.dim = data_X.shape[1]-1
         self.M = M # refinement factor
         self.T = T  # horizon time
         self.s0 = s0 # data batch size
@@ -34,14 +35,20 @@ class Bayesian_logistic(MLMC):
         self.data_size = self.data_X.shape[0]
         self.prior = prior
 
-    @staticmethod
-    def init_weights(net, mu=0, std=1):
+    def init_weights(self, net, mu=0, std=1):
         """ Init weights with prior
 
         """
-        #net.params.data.copy_(mu + std * torch.randn_like(net.params))
-        net.params.data.copy_(torch.zeros_like(net.params))
-        #net.params.data.copy_(torch.ones_like(net.params)*0.5)
+        # load the mode
+        try:
+            path_mode = "./numerical_results/sgld_cv/logistic/mode_{}_d{}_m{}".format(args.type_data, dim, data_size)
+            MAP_checkpoint = torch.load(os.path.join(path_mode, "MAP.pth.tar"), map_location=self.device) # state_dict
+            MAP = LogisticNets(self.dim, N=1)#.to(device=self.device)
+            MAP.load_state_dict(MAP_checkpoint)
+            N = net.params.shape[0]
+            net.params.data.copy_(MAP.params.data.repeat((N,1)))
+        except:
+            net.params.data.copy_(torch.zeros_like(net.params))
 
 
     def euler_step(self, nets, U, sigma, h, dW):
@@ -62,9 +69,10 @@ class Bayesian_logistic(MLMC):
         """
         nets.zero_grad()
         subsample_size = U.shape[1]
-        drift_langevin = 1/self.data_size * self.prior.logprob(nets.params) + 1/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
+        #drift_langevin = 1/self.data_size * self.prior.logprob(nets.params) + 1/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
+        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
         drift_langevin.backward(torch.ones_like(drift_langevin))
-        nets.params.data.copy_(nets.params.data + h/2*(nets.params.grad) + sigma * dW)
+        nets.params.data.copy_(nets.params.data + h*(nets.params.grad) + sigma * dW)
         if torch.isnan(nets.params.mean()):
             raise ValueError("getting nans in SDE step")
         return 0
@@ -82,7 +90,6 @@ class Bayesian_logistic(MLMC):
         """
         with torch.no_grad():
             F = torch.norm(nets.params, p=2, dim=1)**2
-        #F = nets
         return F.cpu().numpy()
 
     
@@ -94,17 +101,16 @@ class Bayesian_logistic(MLMC):
         """
         dim = self.data_X.shape[1]-1
         
-        nf = self.n0 # n steps discretisation level
-        hf = self.T/nf # step size in discretisation level
+        hf = 5e-6#0.01/self.data_size#1/self.data_size#self.T/self.n0 # step size in discretisation level
         
         sf = self.s0 * self.M ** l
         sc = int(sf/self.M)
-        sigma_f = 1/math.sqrt(self.data_size)
+        sigma_f = math.sqrt(2)
 
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
 
-        for N1 in range(0, N, 1000):
-            N2 = min(1000, N-N1) # we will do batches of paths of size N2
+        for N1 in range(0, N, 5000):
+            N2 = min(5000, N-N1) # we will do batches of paths of size N2
             
             X_f = LogisticNets(dim, N2).to(device=self.device)
             self.init_weights(X_f)
@@ -113,8 +119,8 @@ class Bayesian_logistic(MLMC):
             X_c2 = copy.deepcopy(X_f) # 2nd coarse process for antithetics
             
             dW = torch.zeros_like(X_f.params)
-
-            for n in range(int(nf)):
+            pbar = tqdm.tqdm(total=self.n0)
+            for n in range(self.n0):
                 dW = math.sqrt(hf) * torch.randn_like(dW)
                 U = np.random.choice(self.data_size, (N2,sf), replace=True)
                 self.euler_step(X_f, U, sigma_f, hf, dW)
@@ -122,6 +128,8 @@ class Bayesian_logistic(MLMC):
                 if l>0:
                     self.euler_step(X_c1, U[:,:sc], sigma_f, hf, dW)
                     self.euler_step(X_c2, U[:,sc:], sigma_f, hf, dW)
+                if n%100==0:
+                    pbar.update(100)
 
             F_fine = self.Func(X_f)
             F_coarse_antithetic = 0.5 * (self.Func(X_c1)+self.Func(X_c2)) if l>0 else 0
@@ -164,8 +172,8 @@ class Bayesian_logistic(MLMC):
         
         L = len(Nl)
         CL = self.n0 *  (1 + self.s0 * self.M ** (L-1))
-        #cost = np.ceil(2/eps**2 * self.var_Pf[min(L-1, len(self.var_Pf)-1)]) * CL
-        cost = np.ceil(2/eps**2 * self.var_Pf[0]) * CL
+        cost = np.ceil(2/eps**2 * self.var_Pf[min(L-1, len(self.var_Pf)-1)]) * CL
+        #cost = np.ceil(2/eps**2 * self.var_Pf[0]) * CL
         return cost
     
     def get_cost_MLMC(self, eps, Nl):
@@ -229,7 +237,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='cpu', help='device')
     parser.add_argument('--dim', type=int, default=2, help='dimension of data if type_data==synthetic')
     parser.add_argument('--data_size', type=int, default=512, help="data_size if type_data==synthetic")
-    parser.add_argument('--T', type=int, default=10, help='horizon time')
+    parser.add_argument('--T', type=float, default=10, help='horizon time')
     parser.add_argument('--n_steps', type=int, default=10000, help='number of steps in time discretisation')
     parser.add_argument('--seed', type=int, default=1, help='seed')
     parser.add_argument('--type_data', type=str, default="synthetic", help="type of data", choices=["synthetic", "covtype"])
@@ -287,18 +295,20 @@ if __name__ == '__main__':
     bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, 
             os.path.join(path_results,"log.txt"))
     #bayesian_logregress.save_convergence_test(os.path.join(path_results, "logistic_level_s_data.txt"))
+    bayesian_logregress.save(Eps=None, Nl_list=None, mlmc_cost=None, std_cost=None, 
+            filename=os.path.join(path_results, "masga_results.pickle"))
 
 
     # 2. get complexities
-    Eps = [0.005, 0.001, 0.0005, 0.0001, 0.00005]#, 0.0005]
-    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
-            os.path.join(path_results, "log.txt"))
+    #Eps = [1.,0.1,0.01,0.001] #[0.005, 0.001, 0.0005, 0.0001, 0.00005]#, 0.0005]
+    #Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
+    #        os.path.join(path_results, "log.txt"))
 
-    # 3. plot
-    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 
-            os.path.join(path_results,"masga_plots.pdf"))
-    
-    # 4. save
-    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
-            os.path.join(path_results, "masga_results.pickle"))
+    ## 3. plot
+    #bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 
+    #        os.path.join(path_results,"masga_plots.pdf"))
+    #
+    ## 4. save
+    #bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
+    #        os.path.join(path_results, "masga_results.pickle"))
 
