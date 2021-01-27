@@ -21,7 +21,7 @@ For mathematical details, see
 - Stochastic Langevin Dynamics using Control Variate to reduce the variance a MAP estimator. This algorithm is taken from the paper [Control Variates for Stochastic Gradient MCMC](https://arxiv.org/abs/1706.05439) and is used for benchmarking purposes. 
 
 ## Acknowledgements
-MLMC and MIMC part of the code initially based on https://bitbucket.org/pefarrell/pymlmc/src/master/.
+MLMC and MIMC abstract classes initially based on https://bitbucket.org/pefarrell/pymlmc/src/master/.
 
 ## Files
 
