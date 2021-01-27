@@ -69,7 +69,7 @@ class MixtureGaussians(BasePrior):
             exponent = -0.5 * (x-mu)**2/diagSigma # (N, dim)
             exponent = exponent.sum(1) # (N)
             prob += mixing * 1/torch.sqrt(torch.prod(diagSigma))*torch.exp(exponent) # torch.prod(diagSigma) := det(diagSigma)
-        return torch.log(prob)
+        return torch.log(prob+1e-8)
 
 
 
