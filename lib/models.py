@@ -140,7 +140,7 @@ class MixtureGaussianNets(nn.Module):
         # we suppose data_X_i \sim 1/2 N(X_1, \sigma_x^2) + 1/2 N(X_1 + X_2, \sigma_x^2) are independent for each covariate
         # Therefore, the join prob is the product of the prob of the marginals
         likelihood = likelihood.prod(2) # (N, subsample_size)
-        logL = torch.log(likelihood) # (N, subsample_size)
+        logL = torch.log(likelihood + 1e-8) # (N, subsample_size)
         # we sum across subsample 
         logL = logL.sum(1) #(N) 
         return logL
