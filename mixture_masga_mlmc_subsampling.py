@@ -256,6 +256,8 @@ if __name__ == '__main__':
     path_results = "./numerical_results/mlmc_subsampling/mixture/prior_{}/{}_d{}_m{}".format(args.prior, args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
+    with open(os.path.join(path_results, 'commandline_args.json'), 'w') as f:
+        json.dump(vars(args), f)
     
     # prior configuration
     prior = Gaussian(mu=torch.zeros(dim, device=device),
