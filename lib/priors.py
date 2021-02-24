@@ -1,10 +1,13 @@
 import torch
 from typing import List
+from abc import abstractmethod
 
 class BasePrior():
+    
 
+    @abstractmethod
     def grad_logprob(self, x):
-        raise NotImplementedError()
+        ...
 
 
 class Gaussian(BasePrior):

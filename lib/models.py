@@ -2,8 +2,22 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
+from abc import abstractmethod
 
-class LogisticNets(nn.Module):
+
+class BaseModel(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    @abtsractmethod
+    def loglik(self, **kwargs):
+        ...
+
+
+
+
+class LogisticNets(BaseModel):
     """
     List of logistic regressions
     """
@@ -21,7 +35,7 @@ class LogisticNets(nn.Module):
         N : int
             Number of copies of the logistic regression necessary for Monte Carlo
         """
-        super().__init__()
+        super(BaseModel,self).__init__()
         self.params = nn.Parameter(torch.zeros(N, dim+1)) # +1 is for the intercept
 
 
@@ -86,7 +100,7 @@ class LogisticNets(nn.Module):
         return 0 
 
 
-class MixtureGaussianNets(nn.Module):
+class MixtureGaussianNets(BaseModel):
     """
     Model follows a mixture of Gaussians.
     Model taken from Example 5.1 in https://www.ics.uci.edu/~welling/publications/papers/stoclangevin_v6.pdf
@@ -103,7 +117,7 @@ class MixtureGaussianNets(nn.Module):
         sigma_x: float
             see Example https://www.ics.uci.edu/~welling/publications/papers/stoclangevin_v6.pdf
         """
-        super().__init__()
+        super(BaseModel, self).__init__()
         assert dim==2, "dim needs to be 2, see https://www.ics.uci.edu/~welling/publications/papers/stoclangevin_v6.pdf"
         self.params = nn.Parameter(torch.zeros(N, dim))
         self.sigma_x = sigma_x
