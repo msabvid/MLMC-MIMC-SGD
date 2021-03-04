@@ -191,7 +191,7 @@ class MLMC(ABC):
             avg_Pf_Pc.append(sums_level_l[0])
             avg_Pf.append(sums_level_l[4])
             var_Pf_Pc.append(sums_level_l[1]-sums_level_l[0]**2)
-            var_Pf.append(sums_level_l[5]-sums_level_l[4]**2)
+            var_Pf.append(np.maximum(sums_level_l[5]-sums_level_l[4]**2,0))
                 
 
             if l==0:

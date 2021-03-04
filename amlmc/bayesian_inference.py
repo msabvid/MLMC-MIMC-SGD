@@ -14,9 +14,9 @@ import pickle
 import json
 
 from mlmc_mimc import MLMC 
-from ..lib.data import get_dataset
-from ..nn.priors import Gaussian, MixtureGaussians
-from ..nn.models import LogisticNets
+from lib.data import get_dataset
+from nn.priors import Gaussian, MixtureGaussians
+from nn.models import LogisticNets
 
 
 
