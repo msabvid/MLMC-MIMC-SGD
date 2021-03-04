@@ -1,1 +1,1 @@
-from bayesian_inference import Bayesian_MASGA
+from .bayesian_inference import Bayesian_MASGA

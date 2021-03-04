@@ -14,10 +14,9 @@ import pickle
 import json
 
 from mlmc_mimc import MLMC 
-from lib.data import get_dataset
-from lib.priors import Gaussian, MixtureGaussians
-from lib.models import LogisticNets
-from lib.config import config_priors
+from ..lib.data import get_dataset
+from ..nn.priors import Gaussian, MixtureGaussians
+from ..nn.models import LogisticNets
 
 
 
@@ -27,11 +26,28 @@ class Bayesian_AMLMC(MLMC):
     """
 
     def __init__(self, Lmin: int, Lmax: int, N0: int, M: int, h0: float, 
-            s0: int, n0: int, data_X: torch.Tensor, data_Y: torch.Tensor, prior, model, device):
+            s0: int, n0: int, data_X: torch.Tensor, data_Y: torch.Tensor, prior, model, func, init_func, device):
+        """
+        Parameters
+        ----------
+        Lmin: int, minimum refinement level in MIMC algorithm
+        LMax: int, maximum refinement level in MIMC algorithm
+        N0: int, initial number of samples in MIMC algorithm
+        M: int, refinement value
+        h0: float, initial step size at discretisation level 0
+        s0: int, initial subsample size at subsampling level 0
+        n0: int, number of steps at discretisation level 0
+        data_X: torch.Tensor, 
+        data_Y: torch.Tensor
+        prior: BasePrior
+        model: BaseModel
+        func: function. f in E(f(X))
+        device: str
+        """
         super().__init__(Lmin, Lmax, N0)
         self.data_X = data_X
         self.data_Y = data_Y
-        self.dim = data_X.shape[1]-1
+        self.dim = data_X.shape[1]
         self.M = M # refinement factor
         self.h0 = h0  # initial timestep
         self.s0 = s0 # data batch size
@@ -41,21 +57,14 @@ class Bayesian_AMLMC(MLMC):
         self.prior = prior
         self.model = model
         self.func = func
+        self.init_func = init_func
 
     def init_weights(self, net, mu=0, std=1, **kwargs):
         """ Init weights with prior
 
         """
-        # load the mode
-        #try:
-        #    path_mode = "./numerical_results/sgld_cv/logistic/mode_{}_d{}_m{}".format(args.type_data, dim, data_size)
-        #    MAP_checkpoint = torch.load(os.path.join(path_mode, "MAP.pth.tar"), map_location=self.device) # state_dict
-        #    MAP = LogisticNets(self.dim, N=1)#.to(device=self.device)
-        #    MAP.load_state_dict(MAP_checkpoint)
-        #    N = net.params.shape[0]
-        #    net.params.data.copy_(MAP.params.data.repeat((N,1)))
-        #except:
-        net.params.data.copy_(torch.zeros_like(net.params))
+        #net.params.data.copy_(torch.zeros_like(net.params))
+        net.params.data.copy_(self.init_func(params=net.params.data))
 
 
     def euler_step(self, nets, U, sigma, h, dW):
@@ -159,9 +168,13 @@ class Bayesian_AMLMC(MLMC):
             - Number of random numbers generated for Brownian motion: self.n0
             - In each step in time discretisation, number of random numbers generated for subsampling: self.n0*self.s0*self.M**l
         """
-        cost = self.n0 * (1+self.s0 * self.M ** l)
+        cost = self.n0 * (self.s0 * self.M ** l)
         return cost
     
+    def get_cost_path(self):
+        L = len(self.var_Pf_Pc)
+        Cl = self.n0 * (self.s0 * self.M ** np.arange(L))
+        return Cl
     
     def get_cost_std_MC(self, eps, Nl):
         """Cost of standard Monte Carlo
@@ -180,11 +193,11 @@ class Bayesian_AMLMC(MLMC):
         """
         
         L = len(Nl)
-        CL = self.n0 *  (1 + self.s0 * self.M ** (L-1))
+        CL = self.n0 *  (self.s0 * self.M ** (L-1))
         cost = np.ceil(2/eps**2 * self.var_Pf[min(L-1, len(self.var_Pf)-1)]) * CL
         return cost
     
-    def get_cost_MLMC(self, eps, Nl):
+    def get_cost_MLMC(self, Nl):
         """Cost of MLMC
         
         Parameters

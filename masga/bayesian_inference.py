@@ -9,23 +9,40 @@ import argparse
 import numpy as np
 import math
 from itertools import product
+import tqdm
 import matplotlib.pyplot as plt
 
-from mlmc_mimc import MIMC 
-from lib.priors import Gaussian, MixtureGaussians
-from lib.models import LogisticNets
-from lib.config import config_priors
+from ..mlmc_mimc import MIMC 
+from ..nn.priors import Gaussian, MixtureGaussians
 
 class Bayesian_MASGA(MIMC):
 
     def __init__(self, Lmin: int, Lmax: int, N0: int, M: int, h0: float, 
-            s0: int, n0: int, data_X: torch.Tensor, data_Y: torch.Tensor, prior, model, func, device):
+            s0: int, n0: int, data_X: torch.Tensor, data_Y: torch.Tensor, prior, model, func, init_func, device):
+        """
+        Parameters
+        ----------
+        Lmin: int, minimum refinement level in MIMC algorithm
+        LMax: int, maximum refinement level in MIMC algorithm
+        N0: int, initial number of samples in MIMC algorithm
+        M: int, refinement value
+        h0: float, initial step size at discretisation level 0
+        s0: int, initial subsample size at subsampling level 0
+        n0: int, number of steps at discretisation level 0
+        data_X: torch.Tensor, 
+        data_Y: torch.Tensor
+        prior: BasePrior
+        model: BaseModel
+        func: function. f in E(f(X))
+        device: str
+        """
+        
         super().__init__(Lmin, Lmax, N0)
         self.data_X = data_X
         self.data_Y = data_Y
         self.dim = data_X.shape[1]
         self.M = M # refinement factor
-        self.h0 = h0  # horizon time
+        self.h0 = h0  # timestep size
         self.s0 = s0 # data batch size at level 0
         self.n0 = n0 # number of timesteps at level 0
         self.device=device
@@ -34,14 +51,16 @@ class Bayesian_MASGA(MIMC):
         self.prior = prior
         self.model = model
         self.func = func
+        self.init_func = init_func
 
-    @staticmethod
-    def init_weights(net, mu=0, std=1):
+    
+    def init_weights(self, net, mu=0, std=1):
         """ Init weights with prior
 
         """
         #net.params.data.copy_(mu + std * torch.randn_like(net.params))
-        net.params.data.copy_(torch.zeros_like(net.params))
+        #net.params.data.copy_(torch.zeros_like(net.params))
+        net.params.data.copy_(self.init_func(params=net.params.data))
 
 
     def euler_step(self, nets, U, sigma, h, dW):
@@ -149,11 +168,15 @@ class Bayesian_MASGA(MIMC):
             dWc = torch.zeros_like(X_hf_sf.params)
 
             if lh==0 and ls==0:
+                pbar = tqdm.tqdm(total=int(nf))
                 for n in range(int(nf)):
                     dWf = math.sqrt(hf) * torch.randn_like(dWf)
                     U = np.random.choice(self.data_size, (N2,sf))
                     self.euler_step(X_hf_sf, U, sigma_f, hf, dWf)
+                    if n%100==0:
+                        pbar.update(100)
             else:
+                pbar = tqdm.tqdm(total=int(nc))
                 for n in range(int(nc)):
                     dWc = dWc * 0
                     U_list = []
@@ -175,6 +198,8 @@ class Bayesian_MASGA(MIMC):
                     self.euler_step(X_hc1_sc2, U_list[0][:,sc:], sigma_f, hc, dWc)
                     self.euler_step(X_hc2_sc1, U_list[1][:,:sc], sigma_f, hc, dWc)
                     self.euler_step(X_hc2_sc2, U_list[1][:,sc:], sigma_f, hc, dWc)
+                    if n%100 == 0:
+                        pbar.update(100)
                 
             F_fine = self.Func(X_hf_sf)
             if lh>0 and ls>0:
@@ -199,6 +224,14 @@ class Bayesian_MASGA(MIMC):
             sums_level_l[5] += np.sum(F_fine**2)  
         return sums_level_l
 
+    
+    def get_cost_path(self):
+        Cl = np.zeros_like(self.var_Pf_Pc)
+        L = self.var_Pf_Pc.shape[0]
+        for l1, l2 in product(range(L), range(L)):
+            Cl[l1,l2] = self.n0 * (self.M ** l1) * (self.s0 * self.M ** l2) 
+        return Cl
+
 
     def get_cost_std_MC(self, eps, Nl):
         """Cost of standard Monte Carlo
@@ -216,11 +249,11 @@ class Bayesian_MASGA(MIMC):
             Number of samples per level
         """
         x = np.array(Nl.shape) - 1 
-        Cl = self.n0 * (self.M ** x[0]) * (1 + self.s0 * self.M ** x[1])
+        Cl = self.n0 * (self.M ** x[0]) * (self.s0 * self.M ** x[1])
         cost = np.ceil(2/eps**2 * self.var_Pf[0,0]) * Cl
         return cost
     
-    def get_cost_MLMC(self, eps, Nl):
+    def get_cost_MLMC(self, Nl):
         """Cost of MLMC
         
         Parameters
@@ -234,7 +267,7 @@ class Bayesian_MASGA(MIMC):
         Lh,Ls = Nl.shape
         cost = 0
         for lh,ls in product(range(Lh),range(Ls)):
-            cl = self.n0 * (self.M ** lh) * (1 + self.s0 * self.M ** ls)
+            cl = self.n0 * (self.M ** lh) * (self.s0 * self.M ** ls)
             cost += Nl[lh, ls] * cl
 
         return cost
@@ -261,10 +294,10 @@ class Bayesian_MASGA(MIMC):
         if (L+1)<self.avg_Pf_Pc.shape[0]:
             # use simulations we used used in the calculation of the rates.
             for l1, l2 in zip([L+1]*(L+1), range(L+1)):
-                weak_error += self.avg_Pf_Pc[l1,l2]
+                weak_error += np.abs(self.avg_Pf_Pc[l1,l2])
             for l1, l2 in zip(range(L+1), [L+1]*(L+1)):
-                weak_error += self.avg_Pf_Pc[l1,l2]
-            weak_error += self.avg_Pf_Pc[L+1,L+1]
+                weak_error += np.abs(self.avg_Pf_Pc[l1,l2])
+            weak_error += np.abs(self.avg_Pf_Pc[L+1,L+1])
         else:
             for l1, l2 in zip([L+1]*(L+1), range(L+1)):
                 sums_level_l = self.mlmc_fn((l1,l2),10000)

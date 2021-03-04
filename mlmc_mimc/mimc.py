@@ -160,7 +160,7 @@ class MIMC(ABC):
 
 
     
-    def estimate_alpha_beta_gamma(self, L, N, logfile):
+    def estimate_alpha_beta_gamma(self, L, N, logfile, from_first_level=False):
         """Returns alpha, beta, gamma
         """
         self.N_samples_convergence=N
@@ -197,7 +197,7 @@ class MIMC(ABC):
             format_string = "{:<10}{:<10}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}{:<15.4e}\n"
             self.write(logfile, format_string.format(l1,l2,avg_Pf_Pc[l1,l2], avg_Pf[l1,l2], var_Pf_Pc[l1,l2], var_Pf[l1,l2],cost[l1,l2]))
 
-        L1 = int(np.ceil(0.4*L))
+        L1 = 1 if from_first_level else int(np.ceil(0.4*L))
         L2 = L+1
         
         # we approximate alpha, beta, gamma, see Theorem 2
