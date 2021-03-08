@@ -12,8 +12,8 @@ from itertools import product
 import tqdm
 import matplotlib.pyplot as plt
 
-from ..mlmc_mimc import MIMC 
-from ..nn.priors import Gaussian, MixtureGaussians
+from mlmc_mimc import MIMC 
+from nn.priors import Gaussian, MixtureGaussians
 
 class Bayesian_MASGA(MIMC):
 
@@ -294,10 +294,10 @@ class Bayesian_MASGA(MIMC):
         if (L+1)<self.avg_Pf_Pc.shape[0]:
             # use simulations we used used in the calculation of the rates.
             for l1, l2 in zip([L+1]*(L+1), range(L+1)):
-                weak_error += np.abs(self.avg_Pf_Pc[l1,l2])
+                weak_error += 2**self.alpha.predict([[l1,l2]]).item()#(self.avg_Pf_Pc[l1,l2])
             for l1, l2 in zip(range(L+1), [L+1]*(L+1)):
-                weak_error += np.abs(self.avg_Pf_Pc[l1,l2])
-            weak_error += np.abs(self.avg_Pf_Pc[L+1,L+1])
+                weak_error += 2**self.alpha.predict([[l1,l2]]).item()#(self.avg_Pf_Pc[l1,l2])
+            weak_error += 2**self.alpha.predict([[L+1,L+1]]).item()#(self.avg_Pf_Pc[L+1,L+1])
         else:
             for l1, l2 in zip([L+1]*(L+1), range(L+1)):
                 sums_level_l = self.mlmc_fn((l1,l2),10000)
