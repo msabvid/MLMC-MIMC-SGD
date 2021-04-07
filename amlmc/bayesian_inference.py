@@ -60,7 +60,7 @@ class Bayesian_AMLMC(MLMC):
         self.init_func = init_func
 
     def init_weights(self, net, mu=0, std=1, **kwargs):
-        """ Init weights with prior
+        """ Init weights with init function
 
         """
         #net.params.data.copy_(torch.zeros_like(net.params))
@@ -109,6 +109,49 @@ class Bayesian_AMLMC(MLMC):
         return F.cpu().numpy()
 
     
+    
+    def sample_posterior(self, l, N):
+        """
+        Sample from the posterior
+
+        Parameters
+        ----------
+        l: int. Level of subsampling level
+        N: int. Number of chains
+        
+        Returns
+        -------
+        chain: torch.Tensor of shape [N, self.n0+1, dim]
+
+        """
+        dim = self.data_X.shape[1]-1
+        
+        hf = self.h0 #5e-6#0.01/self.data_size#1/self.data_size#self.T/self.n0 # step size in discretisation level
+        # we re-scale timestep size: h:=h/(2m)
+        hf = hf/(2*self.data_size)
+        
+        sf = self.s0 * self.M ** l
+        sigma_f = math.sqrt(2)
+
+        chain = torch.zeros(N, self.n0+1, dim, device=self.device)
+
+        X_f = self.model(dim, N, **kwargs).to(device=self.device)
+        self.init_weights(X_f)
+        chain[:,0,:] = X_f.params.data.detach()
+        dW = torch.zeros_like(X_f.params)
+        
+        pbar = tqdm.tqdm(total=self.n0)
+        for n in range(self.n0):
+            dW = math.sqrt(hf) * torch.randn_like(dW)
+            U = np.random.choice(self.data_size, (N2,sf), replace=True)
+            self.euler_step(X_f, U, sigma_f, hf, dW)
+            chain[:,n+1,:] = X_f.params.data.detach()
+            if n%100==0:
+                pbar.update(100)
+
+        return chain
+
+
 
     def mlmc_fn(self, l, N, **kwargs):
         """SDE to train Bayesian logistic regression
