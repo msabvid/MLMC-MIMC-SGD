@@ -7,8 +7,10 @@ from abc import abstractmethod
 
 class BaseModel(nn.Module):
 
-    def __init__(self):
+    def __init__(self, dim, N):
         super().__init__()
+        self.dim = dim
+        self.N = N
 
     @abstractmethod
     def loglik(self, **kwargs):
@@ -36,7 +38,7 @@ class LogisticNets(BaseModel):
             Number of copies of the logistic regression necessary for Monte Carlo
         """
         super(BaseModel,self).__init__()
-        self.params = nn.Parameter(torch.zeros(N, dim+1)) # +1 is for the intercept
+        self.params = nn.Parameter(torch.zeros(N, dim))#+1)) # +1 is for the intercept
 
 
     def forward(self, data_X, idx=0):
@@ -61,7 +63,7 @@ class LogisticNets(BaseModel):
         """
         self.zero_grad()
         loss_fn = nn.BCELoss(reduction='none')
-        x = data_X[U,:] # x has shape (N, subsample_size, (dim+1))
+        x = data_X[U,:] # x has shape (N, subsample_size, dim)
         target = data_Y[U,:]
         
         y = torch.bmm(x,self.params.unsqueeze(2)) # (N, subsample_size, 1)

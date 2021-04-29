@@ -6,7 +6,7 @@ class BasePrior():
     
 
     @abstractmethod
-    def grad_logprob(self, x):
+    def logprob(self, x):
         ...
 
 

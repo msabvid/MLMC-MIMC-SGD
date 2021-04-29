@@ -33,7 +33,7 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
 
     if type_data=="synthetic" and type_regression=="logistic":
         data_x = 2*torch.randn(m, d)
-        data_x = torch.cat([torch.ones(m, 1), data_x],1)
+        data_x = torch.cat([torch.ones(m, 1), data_x],1) # intercept
         params = torch.randn(d+1,1)-0.1
         data_y = torch.matmul(data_x,params)
         data_y = torch.sign(torch.clamp(data_y,0))
@@ -58,7 +58,7 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
         torch.save(data, os.path.join(data_dir, filename))
     elif type_regression=='MixtureGaussians':
         theta1, theta2 = 0, 1
-        sigma_x = np.sqrt(1)
+        sigma_x = np.sqrt(2)
         u1 = np.random.rand(m)
         u2 = np.random.rand(m)
         z1 = np.random.randn(m)
