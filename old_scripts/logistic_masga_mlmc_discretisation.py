@@ -16,7 +16,7 @@ from mlmc_mimc import MLMC
 from lib.data import get_dataset
 from lib.priors import Gaussian, MixtureGaussians
 from lib.models import LogisticNets
-from lib.hyperparameters import config_priors
+from lib.config import config_priors
 
 
         

@@ -10,30 +10,27 @@ import numpy as np
 import math
 from itertools import product
 import matplotlib.pyplot as plt
-import json
-import tqdm
 
 from mlmc_mimc import MIMC 
 from lib.data import get_dataset
 from lib.priors import Gaussian, MixtureGaussians
-from lib.models import MixtureGaussianNets
-from lib.hyperparameters import config_priors
+from lib.models import LogisticNets
+from lib.config import config_priors
 
 
         
 
-class Bayesian_Inference(MIMC):
+class Bayesian_logistic(MIMC):
 
-    def __init__(self, Lmin, Lmax, N0, M, h0, s0, n0, data_X, data_Y, prior, device):
+    def __init__(self, Lmin, Lmax, N0, M, T, s0, n0, data_X, data_Y, prior, device):
         super().__init__(Lmin, Lmax, N0)
         self.data_X = data_X
         self.data_Y = data_Y
         self.dim = data_X.shape[1]
         self.M = M # refinement factor
-        self.h0 = h0  # initial time step size 
+        self.T = T  # horizon time
         self.s0 = s0 # data batch size
         self.n0 = n0 # number of timesteps at level 0
-        self.T = self.n0 * self.h0
         self.device=device
         self.data_size = self.data_X.shape[0]
         self.target = 0
@@ -66,11 +63,11 @@ class Bayesian_Inference(MIMC):
         """
         nets.zero_grad()
         subsample_size = U.shape[1]
-        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(self.data_X, U)
+        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
         drift_langevin.backward(torch.ones_like(drift_langevin))
         nets.params.data.copy_(nets.params.data + h*(nets.params.grad) + sigma * dW)
         if torch.isnan(nets.params.mean()):
-            raise ValueError('nans!')
+            raise ValueError
         return 0
 
     
@@ -95,7 +92,7 @@ class Bayesian_Inference(MIMC):
         We fix sampling parameter. We do antithetic approach on Brownian motion
 
         """
-        dim = self.data_X.shape[1]#-1
+        dim = self.data_X.shape[1]-1
         lh, ls = l[0],l[1] # level h and level s
         
         # discretisation level
@@ -107,15 +104,15 @@ class Bayesian_Inference(MIMC):
         # drift estimation level
         sf = self.s0 * self.M ** ls
         sc = int(sf/self.M)
-        sigma_f = math.sqrt(2)
+        sigma_f = math.sqrt(2)#5/math.sqrt(self.data_size)
         
         
         sums_level_l = np.zeros(6) # this will store level l sum  and higher order momentums 
 
-        for N1 in range(0, N, 4000):
-            N2 = min(4000, N-N1) # we will do batches of paths of size N2
+        for N1 in range(0, N, 5000):
+            N2 = min(5000, N-N1) # we will do batches of paths of size N2
             
-            X_hf_sf = MixtureGaussianNets(dim, N2, sigma_x=math.sqrt(5)).to(device=self.device)
+            X_hf_sf = LogisticNets(dim, N2).to(device=self.device)
             self.init_weights(X_hf_sf)
 
             X_hf_sc1 = copy.deepcopy(X_hf_sf)
@@ -129,19 +126,15 @@ class Bayesian_Inference(MIMC):
             X_hc2_sc1 = copy.deepcopy(X_hf_sf)
             X_hc2_sc2 = copy.deepcopy(X_hf_sf)
 
-            dWf = torch.zeros_like(X_hf_sf.params).requires_grad_(False)
-            dWc = torch.zeros_like(X_hf_sf.params).requires_grad_(False)
+            dWf = torch.zeros_like(X_hf_sf.params)
+            dWc = torch.zeros_like(X_hf_sf.params)
 
             if lh==0 and ls==0:
-                pbar = tqdm.tqdm(total=int(nf))
                 for n in range(int(nf)):
                     dWf = math.sqrt(hf) * torch.randn_like(dWf)
                     U = np.random.choice(self.data_size, (N2,sf))
                     self.euler_step(X_hf_sf, U, sigma_f, hf, dWf)
-                    if n%100==0:
-                        pbar.update(100)
             else:
-                pbar = tqdm.tqdm(total=int(nc))
                 for n in range(int(nc)):
                     dWc = dWc * 0
                     U_list = []
@@ -163,9 +156,6 @@ class Bayesian_Inference(MIMC):
                     self.euler_step(X_hc1_sc2, U_list[0][:,sc:], sigma_f, hc, dWc)
                     self.euler_step(X_hc2_sc1, U_list[1][:,:sc], sigma_f, hc, dWc)
                     self.euler_step(X_hc2_sc2, U_list[1][:,sc:], sigma_f, hc, dWc)
-                    
-                    if n%100 == 0:
-                        pbar.update(100)
                 
             F_fine = self.Func(X_hf_sf)
             if lh>0 and ls>0:
@@ -208,10 +198,6 @@ class Bayesian_Inference(MIMC):
         """
         x = np.array(Nl.shape) - 1 
         Cl = self.n0 * (self.M ** x[0]) * (1 + self.s0 * self.M ** x[1])
-        #try:
-        #    cost = np.ceil(2/eps**2 * self.var_Pf[x[0],x[1]]) * Cl
-        #except:
-        #    cost = np.ceil(2/eps**2 * self.var_Pf[-1,-1]) * Cl
         cost = np.ceil(2/eps**2 * self.var_Pf[0,0]) * Cl
         return cost
     
@@ -225,6 +211,7 @@ class Bayesian_Inference(MIMC):
         Nl : np.ndarray
             Number of samples per level
         """
+        #cost = sum(Nl * self.n0 * self.M ** np.arange(len(Nl)))
         Lh,Ls = Nl.shape
         cost = 0
         for lh,ls in product(range(Lh),range(Ls)):
@@ -238,17 +225,7 @@ class Bayesian_Inference(MIMC):
         self.write(logfile, "***  Calculating target ***\n")
         self.write(logfile, "***************************\n")
         Lh, Ls = 7,7
-        #sums_level_l = self.mlmc_fn((Lh,Ls), 5000)
-        #self.target = sums_level_l[4]/5000 + sum(self.avg_Pf_Pc)
         self.target = np.sum(self.avg_Pf_Pc)
-        #avg_Pf_Pc = np.zeros([Lh+1,Ls+1])
-        #for lh,ls in product(range(Lh+1), range(Ls+1)):
-        #    sums_level_l = self.mlmc_fn((lh,ls), 5000)
-        #    avg_Pf_Pc[lh,ls] = sums_level_l[0]/5000
-        #    avg_Pf = sums_level_l[4]/5000
-        #    format_string = "{:<5}{:<5}{:<15.4e}{:<15.4e}\n"
-        #    self.write(logfile,format_string.format(lh,ls,avg_Pf_Pc[lh,ls], avg_Pf))
-        #self.target = np.sum(avg_Pf_Pc)
         self.write(logfile, "target = {:.4f}\n\n".format(self.target))
         return 0
     
@@ -280,16 +257,16 @@ if __name__ == '__main__':
     #CONFIGURATION
     parser = argparse.ArgumentParser()
     parser.add_argument('--M', type=int, default=2, help='refinement value')
-    parser.add_argument('--N', type=int, default=1000, help='samples for convergence tests')
-    parser.add_argument('--L', type=int, default=5, help='levels for convergence tests')
+    parser.add_argument('--N', type=int, default=5000, help='samples for convergence tests')
+    parser.add_argument('--L', type=int, default=6, help='levels for convergence tests')
     parser.add_argument('--s0', type=int, default=2, help='initial value of data batch size')
-    parser.add_argument('--N0', type=int, default=2, help='initial number of samples for MLMC algorithm')
-    parser.add_argument('--Lmin', type=int, default=1, help='minimum refinement level')
-    parser.add_argument('--Lmax', type=int, default=10, help='maximum refinement level')
+    parser.add_argument('--N0', type=int, default=2, help='initial number of samples')
+    parser.add_argument('--Lmin', type=int, default=0, help='minimum refinement level')
+    parser.add_argument('--Lmax', type=int, default=8, help='maximum refinement level')
     parser.add_argument('--device', default='cpu', help='device')
     parser.add_argument('--dim', type=int, default=2, help='dimension of data if type_data==synthetic')
     parser.add_argument('--data_size', type=int, default=512, help="data_size if type_data==synthetic")
-    parser.add_argument('--h0', type=float, default=0.005, help='initial timestep size')
+    parser.add_argument('--T', type=int, default=5, help='horizon time')
     parser.add_argument('--n_steps', type=int, default=10, help='inital number of steps in time discretisation')
     parser.add_argument('--seed', type=int, default=1, help='seed')
     parser.add_argument('--type_data', type=str, default="synthetic", help="type of data")
@@ -305,22 +282,17 @@ if __name__ == '__main__':
 
     # Target Logistic regression, and synthetic data
     data_X, data_Y = get_dataset(m=args.data_size, d=args.dim,
-        type_regression="MixtureGaussians", type_data=args.type_data, data_dir="./data/")
+        type_regression="logistic", type_data=args.type_data, data_dir="./data/")
 
     data_X = data_X.to(device=device)
-    try:
-        data_Y = data_Y.to(device=device)
-    except:
-        pass
+    data_Y = data_Y.to(device=device)
 
     # path numerical results
     dim = data_X.shape[1]
     data_size = data_X.shape[0]
-    path_results = "./numerical_results/mimc/mixture/prior_{}/{}_d{}_m{}".format(args.prior, args.type_data, dim, data_size)
+    path_results = "./numerical_results/mimc/logistic/prior_{}/{}_d{}_m{}".format(args.prior, args.type_data, dim, data_size)
     if not os.path.exists(path_results):
         os.makedirs(path_results)
-    with open(os.path.join(path_results, 'commandline_args.json'), 'w') as f:
-        json.dump(vars(args), f)
     
     # prior configuration
     PRIORS = {"Gaussian":Gaussian, "MixtureGaussians":MixtureGaussians}
@@ -331,7 +303,7 @@ if __name__ == '__main__':
             'Lmax':args.Lmax,
             'N0':args.N0,
             'M':args.M,
-            'h0':args.h0,
+            'T':args.T,
             's0':args.s0,
             'n0':args.n_steps, # initial number of steps at level 0
             'data_X':data_X,
@@ -341,10 +313,22 @@ if __name__ == '__main__':
             }
     
     # Bayesian log regressor
-    bayesian_mixture = Bayesian_Inference(**MIMC_CONFIG)
+    bayesian_logregress = Bayesian_logistic(**MIMC_CONFIG)
     
     # 1. Convergence tests
-    bayesian_mixture.estimate_alpha_beta_gamma(args.L, args.N, 
+    bayesian_logregress.estimate_alpha_beta_gamma(args.L, args.N, 
             os.path.join(path_results, "log.txt"))
-    bayesian_mixture.save(Eps=None, Nl_list=None, mlmc_cost=None, std_cost=None, 
-            filename=os.path.join(path_results, "masga_results.pickle"))
+
+    # 2. get complexities
+    bayesian_logregress.get_target(os.path.join(path_results, "log.txt"))
+    Eps = [0.01, 0.005, 0.001, 0.0005]#, 0.0005]#, 0.0001]
+    Nl_list, mlmc_cost, std_cost = bayesian_logregress.get_complexities(Eps, 
+            os.path.join(path_results, "log.txt"))
+
+    # 3. plot
+    bayesian_logregress.plot(Eps, Nl_list, mlmc_cost, std_cost, 
+            os.path.join(path_results, "logistic_level_h_s_mimc.pdf"))
+    
+    # 4. save
+    bayesian_logregress.save(Eps, Nl_list, mlmc_cost, std_cost, 
+            os.path.join(path_results, "logistic_level_h_s_mimc_data.txt"))
