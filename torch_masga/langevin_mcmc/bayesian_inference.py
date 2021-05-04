@@ -99,7 +99,10 @@ class Bayesian_MCMC():
 
         """
         with torch.no_grad():
-            F = self.func(nets.params) #torch.norm(nets.params, p=2, dim=1)**2
+            if isinstance(nets, torch.Tensor):
+                F = self.func(nets)
+            else:
+                F = self.func(nets.params) #torch.norm(nets.params, p=2, dim=1)**2
         return F.cpu().numpy()
 
     def sample_posterior(self, l, N, **kwargs):

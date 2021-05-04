@@ -160,7 +160,7 @@ class MLMC(ABC):
         """
         ...
     
-    def estimate_alpha_beta_gamma(self, L, N, logfile):
+    def estimate_alpha_beta_gamma(self, L, N, logfile, **kwargs):
         """Returns alpha, beta, gamma
         """
         self.N_samples_convergence = N
@@ -183,7 +183,7 @@ class MLMC(ABC):
 
         for l in range(0, L+1):
             init_time = time.time()
-            sums_level_l = self.mlmc_fn(l, N)
+            sums_level_l = self.mlmc_fn(l, N, **kwargs)
             end_time = time.time()
             #cost.append(end_time - init_time)
             cost.append(self.get_cost(l))

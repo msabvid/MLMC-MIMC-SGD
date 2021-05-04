@@ -86,7 +86,7 @@ class Bayesian_AMLMC(MLMC):
         nets.zero_grad()
         subsample_size = U.shape[1]
         #drift_langevin = 1/self.data_size * self.prior.logprob(nets.params) + 1/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
-        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
+        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(data_X=self.data_X, data_Y=self.data_Y, U=U)
         drift_langevin.backward(torch.ones_like(drift_langevin))
         nets.params.data.copy_(nets.params.data + h*(nets.params.grad) + sigma * dW)
         if torch.isnan(nets.params.mean()):
@@ -118,7 +118,7 @@ class Bayesian_AMLMC(MLMC):
         """
         dim = self.data_X.shape[1]#-1
         
-        hf = self.h0 #5e-6#0.01/self.data_size#1/self.data_size#self.T/self.n0 # step size in discretisation level
+        hf = self.h0 
         # we re-scale timestep size: h:=h/(2m)
         hf = hf/(2*self.data_size)
         
