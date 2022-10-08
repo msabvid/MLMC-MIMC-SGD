@@ -73,6 +73,23 @@ def create_dataset(m: int, d: int, data_dir: str, type_regression="logistic", ty
         data = dict(x=torch.tensor(data_x, dtype=torch.float32),y=data_y)
         filename = "data_MixtureGaussians_synthetic_d{}_m{}.pth.tar".format(d,m)
         torch.save(data, os.path.join(data_dir, filename))
+    elif type_regression=='MixtureGaussians4':
+        theta1, theta2 = -2,2
+        sigma_x = 1.#np.sqrt(2)
+        u1 = np.random.rand(m)
+        u2 = np.random.rand(m)
+        z1 = np.random.randn(m)
+        z2 = np.random.randn(m)
+        x1, x2 = np.zeros_like(u1), np.zeros_like(u1)
+        x1[u1<=0.5] = theta1 + sigma_x * z1[u1<=0.5]
+        x2[u2<=0.5] = theta1 + sigma_x * z2[u2<=0.5]
+        x1[u1>0.5] = theta2 + sigma_x * z1[u1>0.5]
+        x2[u2>0.5] = theta2 + sigma_x * z2[u2>0.5]
+        data_x = np.stack([x1,x2], axis=1)
+        data_y = None
+        data = dict(x=torch.tensor(data_x, dtype=torch.float32),y=data_y)
+        filename = "data_MixtureGaussians4_synthetic_d{}_m{}.pth.tar".format(d,m)
+        torch.save(data, os.path.join(data_dir, filename))
     else:
         raise ValueError("Unknown regression {}".format(type_regression))
 

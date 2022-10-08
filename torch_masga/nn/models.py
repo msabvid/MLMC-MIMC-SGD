@@ -162,5 +162,67 @@ class MixtureGaussianNets(BaseModel):
         return logL
 
 
+class MixtureGaussianNets_4(BaseModel):
+    """
+    Model follows a mixture of FOUR Gaussians.
+    p(X | theta_1, theta_2) = 1/4*np.exp(-(data-theta1)**2/(2*sigmax**2)) + 1/4*np.exp(-(data-theta2)**2/(2*sigmax**2)) + \
+         1/4*np.exp(-(data+theta1)**2/(2*sigmax**2)) + 1/4*np.exp(-(data+theta2)**2/(2*sigmax**2))
+    """
+
+    def __init__(self, dim, N, **kwargs):
+        """
+        Parameters
+        ----------
+        dim: int
+            dimension of the process / quantity of interest
+        N: int
+            number of processes
+        sigma_x: float
+            see Example https://www.ics.uci.edu/~welling/publications/papers/stoclangevin_v6.pdf
+        """
+        super(BaseModel, self).__init__()
+        assert dim==2, "dim needs to be 2, see https://www.ics.uci.edu/~welling/publications/papers/stoclangevin_v6.pdf"
+        self.params = nn.Parameter(torch.zeros(N, dim))
+        self.sigma_x = 1.
+        self.mixing = [0.25, 0.25, 0.25, 0.25]
+
+    def loglik(self, data_X, U, **kwargs):
+        """
+        log-likelihood:
+        data_X_i \sim 1/4 N(X_1, \sigma_x^2) + 1/4 N(X_2, \sigma_x^2) + 1/4 N(-X_1, \sigma_x^2) + 1/4 N(-X_2, \sigma_x^2)
+        
+        Where data_X is the data, and X_1 and X_2 are the parameters of the model. A bit confusing, I know, but
+        I want to keep consistency with the rest of the code and our MASGA paper (https://arxiv.org/pdf/2006.06102.pdf) 
+
+        Note
+        ----
+        The above expression implies a mixture of Normals, not a sum of Normals (which would yield another normal)
+
+        Parameters
+        ----------
+        data_X: torch.Tensor
+            torch.Tensor of shape (N, dim)
+        U: np.array
+            np.array of shape (N, subsample_size)
+        
+        """
+        
+        self.zero_grad()
+        x=data_X[U,:] #(N, subsample_size, dim)
+        
+        mean1 = self.params[:,0].reshape(-1,1,1) #shape (N,1,1)
+        mean2 = self.params[:,1].reshape(-1,1,1) #shape (N,1,1)
+        mean3 = -self.params[:,0].reshape(-1,1,1) #shape (N,1,1)
+        mean4 = -self.params[:,1].reshape(-1,1,1) #shape (N,1,1)
+        
+        likelihood = 0.25*torch.exp(-(x-mean1)**2/(2*self.sigma_x**2)) + 0.25*torch.exp(-(x-mean2)**2/(2*self.sigma_x**2)) + 0.25*torch.exp(-(x-mean3)**2/(2*self.sigma_x**2)) + 0.25*torch.exp(-(x-mean4)**2/(2*self.sigma_x**2)) 
+        likelihood = likelihood * 1 / np.sqrt(2*np.pi * self.sigma_x**2)
+        # we suppose data_X_i \sim 1/2 N(X_1, \sigma_x^2) + 1/2 N(X_1 + X_2, \sigma_x^2) are independent for each covariate
+        # Therefore, the join prob is the product of the prob of the marginals
+        likelihood = likelihood.prod(2) # (N, subsample_size)
+        logL = torch.log(likelihood + 1e-8) # (N, subsample_size)
+        # we sum across subsample 
+        logL = logL.sum(1) #(N) 
+        return logL
 
 # TODO: add other models that can be run forward in the Langevin Process by batches

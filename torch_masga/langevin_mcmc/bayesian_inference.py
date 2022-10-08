@@ -105,7 +105,7 @@ class Bayesian_MCMC():
                 F = self.func(nets.params) #torch.norm(nets.params, p=2, dim=1)**2
         return F.cpu().numpy()
 
-    def sample_posterior(self, l, N, **kwargs):
+    def sample_posterior(self, l, N, subsampling=True, **kwargs):
         """
         Sampling from the posterior using sub-sampling on the dataset and unbiased estimator of the drift of the Langevin process
 
@@ -138,7 +138,10 @@ class Bayesian_MCMC():
         pbar = tqdm.tqdm(total=self.n0)
         for n in range(self.n0):
             dW = math.sqrt(hf) * torch.randn_like(dW)
-            U = np.random.choice(self.data_size, (N,sf), replace=True)
+            if subsampling:
+                U = np.random.choice(self.data_size, (N,sf), replace=True)
+            else:
+                U = np.arange(self.data_size).reshape(1,-1).repeat(N,axis=0)
             self.euler_step(X_f, U, sigma_f, hf, dW)
             chain[:,n+1,:] = X_f.params.data.detach()
             if n%100==0:

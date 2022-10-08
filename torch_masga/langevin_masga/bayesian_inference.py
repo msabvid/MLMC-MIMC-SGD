@@ -81,7 +81,7 @@ class Bayesian_MASGA(MIMC):
         """
         nets.zero_grad()
         subsample_size = U.shape[1]
-        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(self.data_X, self.data_Y, U)
+        drift_langevin = self.prior.logprob(nets.params) + self.data_size/subsample_size * nets.loglik(data_X=self.data_X, data_Y=self.data_Y, U=U)
         drift_langevin.backward(torch.ones_like(drift_langevin))
         nets.params.data.copy_(nets.params.data + h*(nets.params.grad) + sigma * dW)
         if torch.isnan(nets.params.mean()):
@@ -126,7 +126,7 @@ class Bayesian_MASGA(MIMC):
             sums_level_l[4] := \sum F(X_L^i)
             sums_level_l[5] := \sum (F(X_L^i)^2) 
         """
-        dim = self.data_X.shape[1]-1
+        dim = kwargs.get('dim') if kwargs.get('dim') is not None else self.data_X.shape[1]#-1
         lh, ls = l[0],l[1] # level h and level s
         
         # discretisation level

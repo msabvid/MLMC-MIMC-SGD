@@ -160,7 +160,7 @@ class MIMC(ABC):
 
 
     
-    def estimate_alpha_beta_gamma(self, L, N, logfile, from_first_level=False):
+    def estimate_alpha_beta_gamma(self, L, N, logfile, from_first_level=False, **kwargs):
         """Returns alpha, beta, gamma
         """
         self.N_samples_convergence=N
@@ -183,7 +183,7 @@ class MIMC(ABC):
 
         for l1,l2 in product(range(L+1), range(L+1)):
             init_time = time.time()
-            sums_level_l = self.mlmc_fn((l1,l2), N)
+            sums_level_l = self.mlmc_fn((l1,l2), N, **kwargs)
             end_time = time.time()
             #cost.append(end_time - init_time)
             #cost[l1,l2]= end_time - init_time
